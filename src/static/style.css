@@ -52,12 +52,18 @@ a { color: var(--accent); text-decoration: none; cursor: pointer; }
   border-radius: 8px; padding: 7px 10px; cursor: pointer; flex: 1; }
 .btn-ghost:hover { background: var(--panel-2); }
 
-.content { display: flex; flex-direction: column; overflow: hidden; }
+.content { display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .topbar { display: flex; justify-content: space-between; align-items: center;
   padding: 14px 22px; border-bottom: 1px solid var(--border); background: var(--panel); }
+.topbar-start { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .crumb { font-size: 16px; font-weight: 600; }
 .whoami { color: var(--muted); font-size: 13px; }
 .view { padding: 22px; overflow-y: auto; flex: 1; }
+
+/* Hamburger + drawer overlay — hidden on desktop, shown on mobile */
+.nav-toggle { display: none; background: transparent; border: 1px solid var(--border);
+  color: var(--text); border-radius: 8px; padding: 5px 11px; font-size: 18px; cursor: pointer; }
+.nav-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 45; }
 
 /* ---- Buttons ---- */
 .btn { background: var(--accent); color: #fff; border: none; border-radius: 8px;
@@ -129,3 +135,33 @@ tbody tr:hover { background: var(--panel-2); }
   background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
 .stage-pill.done { background: rgba(52,199,89,.15); color: var(--green); border-color: transparent; }
 .stage-pill.current { background: var(--accent-2); color: #fff; border-color: transparent; }
+
+/* ---- Mobile / tablet ---- */
+@media (max-width: 768px) {
+  .shell { grid-template-columns: 1fr; }
+  /* Sidebar becomes an off-canvas drawer, direction-aware */
+  .sidebar { position: fixed; top: 0; bottom: 0; width: 264px; z-index: 50;
+    transition: transform .25s ease; box-shadow: 0 0 24px rgba(0,0,0,.4); }
+  [dir="ltr"] .sidebar { left: 0; transform: translateX(-100%); }
+  [dir="rtl"] .sidebar { right: 0; transform: translateX(100%); }
+  .sidebar.open { transform: translateX(0) !important; }
+  .nav-toggle { display: inline-block; }
+
+  .topbar { padding: 12px 14px; }
+  .view { padding: 14px; }
+  .whoami { font-size: 12px; }
+
+  /* Single-column forms */
+  .form-grid { grid-template-columns: 1fr; }
+  .modal { padding: 16px; width: 94vw; }
+
+  /* Wide tables scroll horizontally instead of breaking the layout */
+  .card table { display: block; overflow-x: auto; white-space: nowrap; }
+
+  /* Stat cards stack two-up */
+  .stat { min-width: calc(50% - 8px); }
+}
+
+@media (max-width: 420px) {
+  .stat { min-width: 100%; }
+}

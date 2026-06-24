@@ -19,6 +19,7 @@
 
   <!-- App shell -->
   <div id="shell" class="shell hidden">
+    <div id="nav-overlay" class="nav-overlay hidden"></div>
     <aside class="sidebar">
       <div class="logo">🧵 <span data-i18n="app_short">المصنع</span></div>
       <nav id="nav"></nav>
@@ -29,7 +30,10 @@
     </aside>
     <main class="content">
       <header class="topbar">
-        <div id="crumb" class="crumb"></div>
+        <div class="topbar-start">
+          <button id="nav-toggle" class="nav-toggle" aria-label="menu">☰</button>
+          <div id="crumb" class="crumb"></div>
+        </div>
         <div id="whoami" class="whoami"></div>
       </header>
       <section id="view" class="view"></section>

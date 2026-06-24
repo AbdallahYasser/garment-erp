@@ -251,7 +251,17 @@ function renderNav() {
   }
 }
 
-function navigate(id) { currentView = id; renderNav(); document.getElementById("crumb").textContent = t(id); renderView(id); }
+function navigate(id) { currentView = id; renderNav(); document.getElementById("crumb").textContent = t(id); renderView(id); toggleNav(false); }
+
+// Off-canvas sidebar drawer (mobile). force=true opens, false closes, undefined toggles.
+function toggleNav(force) {
+  const sb = document.querySelector(".sidebar");
+  const ov = document.getElementById("nav-overlay");
+  if (!sb || !ov) return;
+  const open = force !== undefined ? force : !sb.classList.contains("open");
+  sb.classList.toggle("open", open);
+  ov.classList.toggle("hidden", !open);
+}
 
 // ---------------------------------------------------------------------------
 // View router
@@ -782,6 +792,8 @@ async function boot() {
     await showLogin();
   }
   document.getElementById("logout").onclick = async () => { try { await api("POST", "/api/logout"); } catch (e) {} location.reload(); };
+  document.getElementById("nav-toggle").onclick = () => toggleNav();
+  document.getElementById("nav-overlay").onclick = () => toggleNav(false);
   document.getElementById("lang-toggle").onclick = async () => {
     LANG = LANG === "ar" ? "en" : "ar"; localStorage.setItem("erp_lang", LANG); applyLang();
     try { await api("PUT", "/api/me/language", { language: LANG }); } catch (e) {}
