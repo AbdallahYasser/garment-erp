@@ -34,6 +34,8 @@ const I18N = {
     line_total: "الإجمالي", add_line: "إضافة بند", record_payment: "تسجيل دفعة",
     amount: "المبلغ", kind: "النوع", advance: "عربون", progress: "أثناء الإنتاج", final: "نهائي",
     role: "الصلاحية", active: "نشط", language: "اللغة", created: "تاريخ الإنشاء",
+    pending: "بانتظار الموافقة",
+    users_help: "لإضافة مستخدم جديد: شارك معه رابط النظام (erp.bode1.site). بعد تسجيل دخوله عبر تيليجرام أول مرة سيظهر هنا كحساب «غير نشط». ثم اختر صلاحيته وفعّل خانة «نشط» للموافقة عليه. ولإضافة مدير مالك دائم لا يمكن تعطيله، أضف معرّف تيليجرام الخاص به إلى متغيّر ALLOWED_USERS في Coolify.",
     actor: "المنفّذ", entity: "الكيان", action: "الإجراء", when: "التوقيت",
     open_orders: "أوامر مفتوحة", unpaid_invoices: "فواتير غير مدفوعة", low_stock: "مخزون منخفض",
     recent_activity: "آخر النشاطات", est_breakdown: "تفصيل التكلفة",
@@ -83,6 +85,8 @@ const I18N = {
     line_total: "Total", add_line: "Add line", record_payment: "Record payment",
     amount: "Amount", kind: "Kind", advance: "Advance", progress: "Progress", final: "Final",
     role: "Role", active: "Active", language: "Language", created: "Created",
+    pending: "Pending approval",
+    users_help: "To add a new user: share the site link (erp.bode1.site) with them. After they sign in with Telegram once, they appear here as an inactive account. Then pick their role and tick Active to approve them. For a permanent owner-admin who can't be disabled, add their Telegram ID to the ALLOWED_USERS variable in Coolify.",
     actor: "Actor", entity: "Entity", action: "Action", when: "When",
     open_orders: "Open orders", unpaid_invoices: "Unpaid invoices", low_stock: "Low stock",
     recent_activity: "Recent activity", est_breakdown: "Cost breakdown",
@@ -736,9 +740,11 @@ async function renderActivity(view) {
 async function renderUsers(view) {
   const d = await api("GET", "/api/users");
   const roles = ["admin", "accountant", "production", "sales"];
-  view.innerHTML = `<div class="section-head"><h2>${t("users")}</h2></div><div class="card"><table>
+  view.innerHTML = `<div class="section-head"><h2>${t("users")}</h2></div>
+    <div class="card" style="margin-bottom:14px"><p class="muted" style="margin:0">💡 ${t("users_help")}</p></div>
+    <div class="card"><table>
     <thead><tr><th>${t("name")}</th><th>ID</th><th>${t("role")}</th><th>${t("active")}</th></tr></thead>
-    <tbody>${(d.rows || []).map((u) => `<tr><td>${esc(u.name || u.username || "")}</td><td class="muted">${u.tg_user_id}</td>
+    <tbody>${(d.rows || []).map((u) => `<tr><td>${esc(u.name || u.username || "")} ${u.active ? "" : `<span class="tag amber">${t("pending")}</span>`}</td><td class="muted">${u.tg_user_id}</td>
       <td><select data-role="${u.id}">${roles.map((r) => `<option value="${r}" ${u.role === r ? "selected" : ""}>${t("role_" + r)}</option>`).join("")}</select></td>
       <td><input type="checkbox" data-active="${u.id}" ${u.active ? "checked" : ""}></td></tr>`).join("")}</tbody></table></div>`;
   view.querySelectorAll("[data-role]").forEach((s) => s.onchange = async () => { try { await api("PUT", `/api/users/${s.dataset.role}/role`, { role: s.value }); toast(t("saved")); } catch (e) { toast(e.message, "err"); } });

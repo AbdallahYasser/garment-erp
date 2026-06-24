@@ -10,6 +10,40 @@ from src.writes import audit
 VALID_ROLES = ("admin", "accountant", "production", "sales")
 
 
+async def register_pending(tg_user_id: int, name: Optional[str],
+                           username: Optional[str]) -> dict:
+    """Create an inactive (pending) account for a brand-new Telegram user.
+
+    Defaults to role 'sales', active=0 — an admin approves it from the Users
+    screen (tick Active, pick a role). No-op if a row already exists.
+    """
+    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM app_users WHERE tg_user_id = ?", (tg_user_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            return dict(row)
+        cur = await db.execute(
+            "INSERT INTO app_users (tg_user_id, name, username, role, active) "
+            "VALUES (?, ?, ?, 'sales', 0)",
+            (tg_user_id, name, username),
+        )
+        new_id = cur.lastrowid
+        await audit.log(
+            actor={"actor_user_id": tg_user_id, "actor_name": name, "actor_role": None},
+            entity="app_users", entity_id=new_id, action="register",
+            after={"tg_user_id": tg_user_id, "name": name, "active": 0, "role": "sales"},
+            summary=f"new account pending approval: {name or tg_user_id}", db=db,
+        )
+        await db.commit()
+        async with db.execute(
+            "SELECT * FROM app_users WHERE id = ?", (new_id,)
+        ) as cur:
+            return dict(await cur.fetchone())
+
+
 async def ensure_user_on_login(tg_user_id: int, name: Optional[str],
                                username: Optional[str]) -> dict:
     """Called at login. Creates the row if missing.

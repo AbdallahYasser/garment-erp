@@ -68,14 +68,25 @@ async def telegram_auth(request: Request, response: Response):
     if not auth.verify_telegram_hash(data):
         raise HTTPException(status_code=403, detail="Invalid Telegram auth")
     tg_user_id = int(data["id"])
-    if not await auth.is_user_allowed(tg_user_id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
     name = " ".join(p for p in (data.get("first_name"), data.get("last_name")) if p)
+
+    existing = await auth.get_app_user(tg_user_id)
+    if existing is None and tg_user_id not in config.ALLOWED_USERS:
+        # New person: self-register as an inactive (pending) account that an
+        # admin must approve from the Users screen. They cannot log in yet.
+        await w_users.register_pending(tg_user_id, name or None, data.get("username"))
+        raise HTTPException(
+            status_code=403,
+            detail="تم إنشاء حسابك وهو بانتظار موافقة المدير / "
+                   "Your account was created and is awaiting admin approval.")
+
     user = await w_users.ensure_user_on_login(tg_user_id, name or None,
                                               data.get("username"))
     if not user.get("active"):
-        raise HTTPException(status_code=403, detail="Account disabled")
+        raise HTTPException(
+            status_code=403,
+            detail="حسابك بانتظار موافقة المدير أو معطّل / "
+                   "Your account is awaiting admin approval or is disabled.")
 
     token = auth.create_session_token(tg_user_id)
     response.set_cookie(key="session", value=token, httponly=True, secure=True,
