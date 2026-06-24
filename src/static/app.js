@@ -41,6 +41,11 @@ const I18N = {
     approved_sizes: "المقاسات المعتمدة", print_type: "نوع الطباعة", archived: "مؤرشف",
     cut_cost: "تكلفة القص", sew_cost: "تكلفة الخياطة", finish_cost: "تكلفة التشطيب",
     components: "مكونات العينة", spec: "مواصفات الاستهلاك", upload: "رفع ملف",
+    hint_consumption: "هذا الرقم (متر/قطعة) هو ما يستخدمه النظام لحساب القماش المطلوب في أوامر التصنيع. إذا تركته فارغًا، يأخذ النظام الكمية تلقائيًا من بند «القماش» بالمتر.",
+    hint_fabric: "يسجّل قماش العينة النموذجية. تُستخدَم كميته بالمتر في تخطيط الإنتاج فقط عند عدم وجود «مواصفات استهلاك» (التي لها الأولوية دائمًا).",
+    fabric_per_piece_used: "القماش لكل قطعة المستخدَم",
+    src_spec: "المصدر: مواصفات الاستهلاك", src_fabric: "المصدر: بند القماش (احتياطي)",
+    src_none: "غير محدد — أضف مواصفات استهلاك أو بند قماش بالمتر",
     movement_type: "نوع الحركة", add_mv: "إضافة", issue: "صرف", transfer: "تحويل", return_mv: "إرجاع",
     item_type: "نوع الصنف", item_name: "اسم الصنف", fabric: "قماش", packing: "تعبئة",
     blueprint: "الباترون", printing: "الطباعة", manufacturing: "التصنيع", draft: "مسودة", approved: "معتمد",
@@ -85,6 +90,11 @@ const I18N = {
     approved_sizes: "Approved sizes", print_type: "Print type", archived: "Archived",
     cut_cost: "Cut cost", sew_cost: "Sew cost", finish_cost: "Finish cost",
     components: "Sample components", spec: "Consumption spec", upload: "Upload",
+    hint_consumption: "This number (m/piece) is what the system uses to compute the required fabric on manufacturing orders. If you leave it empty, the system falls back to the Fabric quantity (in meters).",
+    hint_fabric: "Records the prototype's fabric. Its meter quantity is used for production planning ONLY when no Consumption spec is set (the spec always takes priority).",
+    fabric_per_piece_used: "Fabric per piece used",
+    src_spec: "source: Consumption spec", src_fabric: "source: Fabric (fallback)",
+    src_none: "not set - add a Consumption spec or a meter Fabric entry",
     movement_type: "Movement", add_mv: "Add", issue: "Issue", transfer: "Transfer", return_mv: "Return",
     item_type: "Item type", item_name: "Item name", fabric: "Fabric", packing: "Packing",
     blueprint: "Blueprint", printing: "Printing", manufacturing: "Manufacturing", draft: "Draft", approved: "Approved",
@@ -465,7 +475,7 @@ async function renderDashboard(view) {
 async function renderSamples(view) { await renderEntity(view, "samples"); }
 
 const SAMPLE_PARTS = [
-  { id: "sample_fabric", title: "fabric", cols: ["fabric_type", "qty_milli:milli", "unit", "cost_cents:money", "source"],
+  { id: "sample_fabric", title: "fabric", hint: "hint_fabric", cols: ["fabric_type", "qty_milli:milli", "unit", "cost_cents:money", "source"],
     fields: [{ k: "fabric_type", t: "fabric_type", type: "text" }, { k: "qty_milli", t: "quantity", type: "milli" },
       { k: "unit", t: "unit", type: "select", options: [["meter", "length_m"], ["kg", "kg"]] },
       { k: "cost_cents", t: "unit_cost", type: "money" },
@@ -481,7 +491,7 @@ const SAMPLE_PARTS = [
   { id: "sample_manufacturing", title: "manufacturing", cols: ["cut_cost_cents:money", "sew_cost_cents:money", "finish_cost_cents:money"],
     fields: [{ k: "cut_cost_cents", t: "cut_cost", type: "money" }, { k: "sew_cost_cents", t: "sew_cost", type: "money" },
       { k: "finish_cost_cents", t: "finish_cost", type: "money" }] },
-  { id: "product_specs", title: "spec", cols: ["fabric_meters_per_piece_milli:milli"],
+  { id: "product_specs", title: "spec", hint: "hint_consumption", cols: ["fabric_meters_per_piece_milli:milli"],
     fields: [{ k: "fabric_meters_per_piece_milli", t: "fabric_per_piece", type: "milli" }] },
   { id: "spec_accessories", title: "required_acc", cols: ["accessory_id:acc", "qty_per_piece_milli:milli"],
     fields: [{ k: "accessory_id", t: "accessories", type: "select", lookup: "accessories" },
@@ -504,6 +514,7 @@ async function manageSample(sampleId) {
     const rows = (d.rows || []).filter((r) => String(r.sample_id) === String(sampleId));
     blocks.push(`<div class="card" style="margin-bottom:12px"><div class="section-head"><h3 style="margin:0">${t(p.title)}</h3>
       ${canWrite ? `<button class="btn small" data-part="${p.id}">+ ${t("add")}</button>` : ""}</div>
+      ${p.hint ? `<p class="muted" style="font-size:12px;margin:0 0 10px">💡 ${t(p.hint)}</p>` : ""}
       <table><tbody>${rows.map((r) => `<tr><td>${p.cols.map((c) => partCell(r, c)).join("</td><td>")}</td>
         ${canWrite ? `<td><a data-del="${p.id}:${r.id}">${t("del")}</a></td>` : ""}</tr>`).join("") || `<tr><td class="muted">${t("none")}</td></tr>`}</tbody></table></div>`);
   }
@@ -590,6 +601,7 @@ async function orderDetail(id) {
     ${canAdvance ? `<div class="toolbar"><select id="stage-sel">${STAGES.map((s) => `<option value="${s}" ${s === o.status ? "selected" : ""}>${t(s)}</option>`).join("")}</select>
       <input id="stage-resp" placeholder="${t("responsible")}"><button class="btn" id="adv">${t("advance_stage")}</button></div>` : ""}
     <h4>${t("est_breakdown")}</h4>
+    <p class="muted">${t("fabric_per_piece_used")}: ${milli(est.fabric_per_piece_milli)} m · ${t("src_" + (est.fabric_source || "none"))}</p>
     <p class="muted">${t("required_fabric")}: ${milli(est.required_fabric_milli)} m</p>
     <table><thead><tr><th>${t("accessories")}</th><th>${t("quantity")}</th><th>${t("line_total")}</th></tr></thead><tbody>${accRows || emptyRow()}</tbody></table>
     <div class="modal-actions"><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {

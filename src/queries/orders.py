@@ -15,6 +15,7 @@ async def compute_estimate(sample_id: Optional[int], quantity: int) -> dict:
         "required_fabric_milli": 0,
         "required_accessories": [],   # [{accessory_id, name, required_milli, cost_cents}]
         "fabric_per_piece_milli": 0,
+        "fabric_source": "none",      # 'spec' | 'fabric' | 'none' — where meters/piece came from
         "manufacturing_per_piece_cents": 0,
         "accessories_per_piece_cents": 0,
         "one_off_cents": 0,
@@ -23,10 +24,22 @@ async def compute_estimate(sample_id: Optional[int], quantity: int) -> dict:
     if not sample_id or quantity <= 0:
         return breakdown
 
+    # Meters per piece: prefer the Consumption spec; if absent, fall back to the
+    # Fabric component's quantity (meter-unit rows only), treating the sample as
+    # one piece. The spec always wins when both are present.
     spec = await fetch_one(
         "SELECT fabric_meters_per_piece_milli FROM product_specs "
         "WHERE sample_id = ? AND deleted_at IS NULL", (sample_id,))
     fpp = (spec or {}).get("fabric_meters_per_piece_milli") or 0
+    if fpp > 0:
+        breakdown["fabric_source"] = "spec"
+    else:
+        fabric_fallback = await fetch_one(
+            "SELECT COALESCE(SUM(qty_milli),0) AS s FROM sample_fabric "
+            "WHERE sample_id = ? AND unit = 'meter' AND deleted_at IS NULL", (sample_id,))
+        fpp = (fabric_fallback or {}).get("s") or 0
+        if fpp > 0:
+            breakdown["fabric_source"] = "fabric"
     breakdown["fabric_per_piece_milli"] = fpp
     breakdown["required_fabric_milli"] = fpp * quantity
 
