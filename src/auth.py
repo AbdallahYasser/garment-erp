@@ -89,11 +89,13 @@ def get_current_user(session: str | None = Cookie(default=None)) -> int:
 
 
 async def get_role(tg_user_id: int) -> str:
+    # Bootstrap owners (ALLOWED_USERS) are always admin — a break-glass account
+    # that cannot be locked out, even if their stored role was changed.
+    if tg_user_id in config.ALLOWED_USERS:
+        return "admin"
     user = await get_app_user(tg_user_id)
     if user:
         return user.get("role") or "sales"
-    if tg_user_id in config.ALLOWED_USERS:
-        return "admin"
     return "sales"
 
 

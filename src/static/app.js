@@ -756,6 +756,12 @@ function applyLang() {
   const lt = document.getElementById("lang-toggle"); if (lt) lt.textContent = LANG === "ar" ? "English" : "عربي";
 }
 
+function updateWhoami() {
+  if (!state.me) return;
+  const el = document.getElementById("whoami");
+  if (el) el.textContent = `${state.me.name || state.me.user_id} · ${t("role_" + state.me.role)}`;
+}
+
 async function boot() {
   applyLang();
   try {
@@ -764,7 +770,7 @@ async function boot() {
     await refreshLookups();
     document.getElementById("login").classList.add("hidden");
     document.getElementById("shell").classList.remove("hidden");
-    document.getElementById("whoami").textContent = `${state.me.name || state.me.user_id} · ${t("role_" + state.me.role)}`;
+    updateWhoami();
     renderNav(); navigate("dashboard");
   } catch (e) {
     await showLogin();
@@ -773,6 +779,7 @@ async function boot() {
   document.getElementById("lang-toggle").onclick = async () => {
     LANG = LANG === "ar" ? "en" : "ar"; localStorage.setItem("erp_lang", LANG); applyLang();
     try { await api("PUT", "/api/me/language", { language: LANG }); } catch (e) {}
+    updateWhoami();
     renderNav(); document.getElementById("crumb").textContent = t(currentView); renderView(currentView);
   };
 }
