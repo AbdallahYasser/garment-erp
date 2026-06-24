@@ -24,6 +24,7 @@ const I18N = {
     fabric_type: "نوع القماش", roll_no: "رقم الرول", owner: "المالك",
     length_m: "الطول (متر)", remaining_m: "المتبقي (متر)", unit_price: "سعر الوحدة",
     stock_qty: "المخزون", source: "المصدر", customer_src: "من العميل", factory_src: "من المصنع",
+    supplied_by_customer: "الخامة يوفّرها العميل — التكلفة تُحتسب صفر",
     order_date: "تاريخ الطلب", delivery_date: "تاريخ التسليم", unit_cost: "تكلفة القطعة",
     est_total: "التكلفة التقديرية", paid: "المدفوع", balance: "المتبقي",
     stage: "المرحلة", advance_stage: "تقديم المرحلة", responsible: "المسؤول",
@@ -67,6 +68,7 @@ const I18N = {
     fabric_type: "Fabric type", roll_no: "Roll #", owner: "Owner",
     length_m: "Length (m)", remaining_m: "Remaining (m)", unit_price: "Unit price",
     stock_qty: "Stock", source: "Source", customer_src: "From customer", factory_src: "From factory",
+    supplied_by_customer: "Supplied by the customer — cost counted as zero",
     order_date: "Order date", delivery_date: "Delivery date", unit_cost: "Unit cost",
     est_total: "Estimated total", paid: "Paid", balance: "Balance",
     stage: "Stage", advance_stage: "Advance stage", responsible: "Responsible",
@@ -366,6 +368,7 @@ function entityForm(id, row, cfgOverride, onSaved) {
     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button>
     <button class="btn" id="m-save">${t("save")}</button></div>`;
   modal((row ? t("edit") : t("add")) + " · " + t(cfg.label || id), body, () => {
+    bindSourceCostToggle(document);
     document.getElementById("m-cancel").onclick = closeModal;
     document.getElementById("m-save").onclick = async () => {
       const payload = collectFields(cfg.fields);
@@ -381,6 +384,29 @@ function entityForm(id, row, cfgOverride, onSaved) {
 }
 
 function debounce(fn, ms) { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; }
+
+// When a component's Source is "customer", its cost is forced to 0 (FRS rule).
+// Reflect that in the form: zero + disable the cost field with a hint.
+function bindSourceCostToggle(scope) {
+  const root = scope || document;
+  const src = root.querySelector("#f_source");
+  const cost = root.querySelector("#f_cost_cents");
+  if (!src || !cost) return;
+  let hint = cost.parentElement.querySelector(".cost-hint");
+  if (!hint) {
+    hint = document.createElement("div");
+    hint.className = "cost-hint muted"; hint.style.fontSize = "11px"; hint.style.marginTop = "4px";
+    cost.parentElement.appendChild(hint);
+  }
+  const apply = () => {
+    const isCust = src.value === "customer";
+    cost.disabled = isCust;
+    cost.style.opacity = isCust ? "0.5" : "1";
+    if (isCust) cost.value = 0;
+    hint.textContent = isCust ? t("supplied_by_customer") : "";
+  };
+  src.addEventListener("change", apply); apply();
+}
 
 // ---------------------------------------------------------------------------
 // History (admin)
@@ -491,6 +517,7 @@ async function manageSample(sampleId) {
           `<div class="form-grid">${part.fields.map((f) => `<div class="field ${f.full ? "full" : ""}"><label>${t(f.t)}</label>${fieldInput(f, f.default)}</div>`).join("")}</div>
            <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`,
           (r2) => {
+            bindSourceCostToggle(r2);
             r2.querySelector("#m-cancel").onclick = () => manageSample(sampleId);
             r2.querySelector("#m-save").onclick = async () => {
               const payload = collectFields(part.fields); payload.sample_id = parseInt(sampleId, 10);
