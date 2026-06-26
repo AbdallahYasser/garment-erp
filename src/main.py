@@ -291,6 +291,18 @@ async def order_create(request: Request,
     return await q_orders.get_detail(new_id)
 
 
+@app.post("/api/orders/wipe-all")
+async def orders_wipe_all(request: Request,
+                          user_id: int = Depends(auth.require_role("admin"))):
+    """Admin-only: delete all orders and restore roll stock. Irreversible."""
+    rate_limit("danger", user_id, max_per_minute=3)
+    body = await request.json()
+    if body.get("confirmation") != "DELETE":
+        raise HTTPException(status_code=400, detail="confirmation required")
+    actor = await auth.actor_context(user_id, request)
+    return await w_orders.wipe_all_orders(actor)
+
+
 @app.post("/api/orders/{order_id}/cost")
 async def order_set_cost(order_id: int, request: Request,
                          user_id: int = Depends(auth.require_role("production"))):

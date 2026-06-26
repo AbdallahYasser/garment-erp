@@ -35,6 +35,8 @@ const I18N = {
     rem_three_quarter: "3/4 متبقي", rem_half: "نصف متبقي", rem_quarter: "ربع متبقي", rem_custom: "مخصص (متر)",
     total_units: "إجمالي القطع",
     cut_gate_hint: "في مرحلة القص: أدخل تكلفة القطعة وأضف سطر قص واحدًا على الأقل قبل الانتقال للمرحلة التالية.",
+    delete_all_orders: "حذف كل الأوامر",
+    confirm_wipe_orders: "سيتم حذف جميع الأوامر نهائيًا (مع تفاصيل القص والمراحل) وإرجاع رولات القماش للمخزون. هل تريد المتابعة؟",
     required_fabric: "القماش المطلوب", required_acc: "الإكسسوارات المطلوبة",
     invoice_no: "رقم الفاتورة", invoice_date: "تاريخ الفاتورة", discount: "الخصم",
     tax: "الضريبة", subtotal: "الإجمالي الفرعي", total: "الإجمالي", description: "الوصف",
@@ -93,6 +95,8 @@ const I18N = {
     rem_three_quarter: "3/4 left", rem_half: "Half left", rem_quarter: "Quarter left", rem_custom: "Custom (m)",
     total_units: "Total units",
     cut_gate_hint: "At Cutting: enter the unit cost and add at least one cut line before moving to the next stage.",
+    delete_all_orders: "Delete all orders",
+    confirm_wipe_orders: "This permanently deletes ALL orders (with their cuts and stages) and returns fabric rolls to stock. Continue?",
     required_fabric: "Required fabric", required_acc: "Required accessories",
     invoice_no: "Invoice #", invoice_date: "Invoice date", discount: "Discount",
     tax: "Tax", subtotal: "Subtotal", total: "Total", description: "Description",
@@ -623,13 +627,20 @@ async function renderOrders(view) {
   const d = await api("GET", "/api/orders");
   const canWrite = ROLE_OK("production", "sales");
   view.innerHTML = `<div class="section-head"><h2>${t("orders")}</h2>
-    ${canWrite ? `<button class="btn" id="add">+ ${t("add")}</button>` : ""}</div>
+    <div class="toolbar">${state.me.role === "admin" ? `<button class="btn danger small" id="wipe-orders">🗑 ${t("delete_all_orders")}</button>` : ""}
+    ${canWrite ? `<button class="btn" id="add">+ ${t("add")}</button>` : ""}</div></div>
     <div class="card"><table><thead><tr><th>${t("code")}</th><th>${t("customer")}</th><th>${t("sample")}</th>
     <th>${t("quantity")}</th><th>${t("est_total")}</th><th>${t("status")}</th><th>${t("actions")}</th></tr></thead>
     <tbody>${(d.rows || []).map((o) => `<tr><td>${esc(o.code || o.id)}</td><td>${esc(o.customer_name || "")}</td>
       <td>${esc(o.sample_name || "")}</td><td>${esc(o.quantity)}</td><td>${money(o.est_total_cents)}</td>
       <td>${statusTag(o.status)}</td><td><a data-open="${o.id}">${t("manage")}</a>${state.me.role === "admin" ? ` · <a data-hist="${o.id}">${t("history")}</a>` : ""}</td></tr>`).join("") || emptyRow()}</tbody></table></div>`;
   if (canWrite) document.getElementById("add").onclick = orderForm;
+  const wb = document.getElementById("wipe-orders");
+  if (wb) wb.onclick = async () => {
+    if (!confirm(t("confirm_wipe_orders"))) return;
+    try { await api("POST", "/api/orders/wipe-all", { confirmation: "DELETE" }); toast(t("deleted")); renderView("orders"); await refreshLookups(); }
+    catch (e) { toast(e.message, "err"); }
+  };
   view.querySelectorAll("[data-open]").forEach((a) => a.onclick = () => orderDetail(a.dataset.open));
   view.querySelectorAll("[data-hist]").forEach((a) => a.onclick = () => showHistory("orders", a.dataset.hist));
 }

@@ -265,6 +265,35 @@ async def remove_cut(actor: dict, order_id: int, cut_id: int) -> bool:
 # --------------------------------------------------------------------------- #
 # stages
 # --------------------------------------------------------------------------- #
+async def wipe_all_orders(actor: dict) -> dict:
+    """Delete every order + its cuts/stages/order-linked inventory movements,
+    restoring the fabric-roll stock the cuts had consumed. Append-only audit
+    keeps the record. Irreversible."""
+    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM order_cuts WHERE deleted_at IS NULL") as c:
+            cuts = [dict(r) for r in await c.fetchall()]
+        for cut in cuts:
+            if cut.get("fabric_roll_id") and (cut.get("rolls_used") or 0) > 0:
+                roll = await _get_roll(db, cut["fabric_roll_id"])
+                if roll:
+                    per_roll = roll.get("length_m_milli") or 0
+                    consumed = _consumed(cut["rolls_used"], per_roll,
+                                         cut.get("remaining_m_milli") or 0)
+                    await _apply_roll(db, roll["id"], cut["rolls_used"], consumed)
+        async with db.execute("SELECT COUNT(*) AS n FROM manufacturing_orders") as c:
+            n = (await c.fetchone())["n"]
+        await db.execute("DELETE FROM inventory_movements WHERE ref_order_id IS NOT NULL")
+        await db.execute("DELETE FROM order_cuts")
+        await db.execute("DELETE FROM order_stages")
+        await db.execute("DELETE FROM manufacturing_orders")
+        await audit.log(actor=actor, entity="manufacturing_orders", action="wipe",
+                        summary=f"all orders deleted ({n}); roll stock restored", db=db)
+        await db.commit()
+        return {"deleted_orders": n, "rolls_restored_lines": len(cuts)}
+
+
 async def advance_stage(
     actor: dict, order_id: int, stage: str,
     *, responsible: Optional[str] = None, notes: Optional[str] = None,
