@@ -23,6 +23,7 @@ const I18N = {
     sample: "العينة", quantity: "الكمية", unit: "الوحدة", color: "اللون", kg: "كجم",
     fabric_type: "نوع القماش", roll_no: "رقم الرول", owner: "المالك",
     length_m: "الطول (متر)", remaining_m: "المتبقي (متر)", unit_price: "سعر الوحدة",
+    rolls_count: "عدد الرولات", length_per_roll: "طول الرول الواحد (متر)", total_meters: "إجمالي الأمتار",
     stock_qty: "المخزون", source: "المصدر", customer_src: "من العميل", factory_src: "من المصنع",
     supplied_by_customer: "الخامة يوفّرها العميل — التكلفة تُحتسب صفر",
     order_date: "تاريخ الطلب", delivery_date: "تاريخ التسليم", unit_cost: "تكلفة القطعة",
@@ -75,6 +76,7 @@ const I18N = {
     sample: "Sample", quantity: "Quantity", unit: "Unit", color: "Color", kg: "kg",
     fabric_type: "Fabric type", roll_no: "Roll #", owner: "Owner",
     length_m: "Length (m)", remaining_m: "Remaining (m)", unit_price: "Unit price",
+    rolls_count: "Number of rolls", length_per_roll: "Length per roll (m)", total_meters: "Total meters",
     stock_qty: "Stock", source: "Source", customer_src: "From customer", factory_src: "From factory",
     supplied_by_customer: "Supplied by the customer — cost counted as zero",
     order_date: "Order date", delivery_date: "Delivery date", unit_cost: "Unit cost",
@@ -188,11 +190,11 @@ const ENTITIES = {
       { k: "supplier_id", t: "supplier", type: "select", lookup: "suppliers" },
     ] },
   fabric_rolls: { roles: ["production"], label: "fabric_rolls", search: true,
-    columns: ["roll_no", "color", "fabric_type", "remaining_m_milli:milli", "owner"],
+    columns: ["color", "fabric_type", "rolls_count", "length_m_milli:milli", "remaining_m_milli:milli", "owner"],
     fields: [
-      { k: "roll_no", t: "roll_no", type: "text" }, { k: "color", t: "color", type: "text" },
-      { k: "fabric_type", t: "fabric_type", type: "text" },
-      { k: "length_m_milli", t: "length_m", type: "milli" }, { k: "remaining_m_milli", t: "remaining_m", type: "milli" },
+      { k: "color", t: "color", type: "text" }, { k: "fabric_type", t: "fabric_type", type: "text" },
+      { k: "length_m_milli", t: "length_per_roll", type: "milli" }, { k: "rolls_count", t: "rolls_count", type: "num" },
+      { k: "remaining_m_milli", t: "remaining_m", type: "milli" },
       { k: "owner", t: "owner", type: "select", options: [["factory", "factory_src"], ["customer", "customer_src"]] },
       { k: "customer_id", t: "customer", type: "select", lookup: "customers" },
       { k: "supplier_id", t: "supplier", type: "select", lookup: "suppliers" },
@@ -313,7 +315,8 @@ async function renderEntity(view, id) {
     <div class="card"><table><thead><tr>${head}<th>${t("actions")}</th></tr></thead>
     <tbody id="tb">${rowsHtml(id, rows, cfg)}</tbody></table>
     ${rows.length ? "" : `<p class="muted" style="padding:14px">${t("none")}</p>`}</div>`;
-  if (canWrite) document.getElementById("add").onclick = () => entityForm(id, null);
+  if (canWrite) document.getElementById("add").onclick = () =>
+    (id === "fabric_rolls" ? fabricRollForm() : entityForm(id, null));
   if (cfg.search) {
     const q = document.getElementById("q");
     q.oninput = debounce(async () => {
@@ -500,6 +503,40 @@ async function renderDashboard(view) {
 // Samples + components
 // ---------------------------------------------------------------------------
 async function renderSamples(view) { await renderEntity(view, "samples"); }
+
+// Add a lot of N identical fabric rolls in one go (no manual per-roll entry).
+function fabricRollForm() {
+  const fields = [
+    { k: "color", t: "color", type: "text" },
+    { k: "fabric_type", t: "fabric_type", type: "text" },
+    { k: "length_m_milli", t: "length_per_roll", type: "milli" },
+    { k: "rolls_count", t: "rolls_count", type: "num", default: 1 },
+    { k: "owner", t: "owner", type: "select", options: [["factory", "factory_src"], ["customer", "customer_src"]] },
+    { k: "customer_id", t: "customer", type: "select", lookup: "customers" },
+    { k: "supplier_id", t: "supplier", type: "select", lookup: "suppliers" },
+  ];
+  const body = `<div class="form-grid">${fields.map((f) => `
+    <div class="field ${f.full ? "full" : ""}"><label>${t(f.t)}</label>${fieldInput(f, f.default)}</div>`).join("")}</div>
+    <p class="muted" id="lot-total" style="margin:8px 0 0"></p>
+    <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button>
+    <button class="btn" id="m-save">${t("save")}</button></div>`;
+  modal(t("add") + " · " + t("fabric_rolls"), body, (root) => {
+    const lenEl = root.querySelector("#f_length_m_milli");
+    const cntEl = root.querySelector("#f_rolls_count");
+    const totalEl = root.querySelector("#lot-total");
+    const showTotal = () => {
+      const total = (parseFloat(lenEl.value || 0) || 0) * (parseInt(cntEl.value || 0, 10) || 0);
+      totalEl.textContent = total ? `${t("total_meters")}: ${total.toLocaleString()} m` : "";
+    };
+    lenEl.oninput = showTotal; cntEl.oninput = showTotal; showTotal();
+    root.querySelector("#m-cancel").onclick = closeModal;
+    root.querySelector("#m-save").onclick = async () => {
+      const p = collectFields(fields);
+      try { await api("POST", "/api/fabric_rolls/lot", p); toast(t("saved")); closeModal(); renderView("fabric_rolls"); await refreshLookups(); }
+      catch (e) { toast(e.message, "err"); }
+    };
+  });
+}
 
 const SAMPLE_PARTS = [
   { id: "sample_fabric", title: "fabric", hint: "hint_fabric", cols: ["fabric_type", "qty_milli:milli", "unit", "cost_cents:money", "source"],

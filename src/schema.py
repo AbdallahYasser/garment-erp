@@ -351,6 +351,12 @@ MIGRATIONS: list[tuple[str, str]] = [
     # back to their sum when this is 0.
     ("0029_sample_manufacturing_cost",
      "ALTER TABLE sample_manufacturing ADD COLUMN cost_cents INTEGER NOT NULL DEFAULT 0"),
+
+    # A fabric_rolls row represents a lot of N identical rolls. length_m_milli
+    # is the length of EACH roll; remaining_m_milli holds the lot's total
+    # remaining meters (= length x count at creation).
+    ("0030_fabric_rolls_count",
+     "ALTER TABLE fabric_rolls ADD COLUMN rolls_count INTEGER NOT NULL DEFAULT 1"),
 ]
 
 

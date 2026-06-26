@@ -106,9 +106,9 @@ _reg(Entity("accessories", "accessories",
 
 _reg(Entity("fabric_rolls", "fabric_rolls",
     ("roll_no", "color", "fabric_type", "length_m_milli", "remaining_m_milli",
-     "owner", "customer_id", "supplier_id"),
-    roles=("production",), label="roll_no",
-    search_cols=("roll_no", "color", "fabric_type")))
+     "rolls_count", "owner", "customer_id", "supplier_id"),
+    roles=("production",), label="color",
+    search_cols=("color", "fabric_type")))
 
 # --- Inventory -----------------------------------------------------------
 _reg(Entity("inventory_movements", "inventory_movements",

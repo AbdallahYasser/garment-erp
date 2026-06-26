@@ -31,6 +31,7 @@ from src.queries import orders as q_orders
 from src.queries import invoices as q_invoices
 from src.queries.base import fetch_all
 from src.writes import orders as w_orders
+from src.writes import rolls as w_rolls
 from src.writes import invoices as w_invoices
 from src.writes import payments as w_payments
 
@@ -224,6 +225,22 @@ async def customer_profile(customer_id: int, user_id: int = Depends(auth.get_cur
 @app.get("/api/dashboard")
 async def dashboard(user_id: int = Depends(auth.get_current_user)):
     return await q_lookups.dashboard()
+
+
+@app.post("/api/fabric_rolls/lot", status_code=201)
+async def fabric_lot_create(request: Request,
+                            user_id: int = Depends(auth.require_role("production"))):
+    """Create one entry standing for a lot of N identical rolls."""
+    rate_limit("write", user_id)
+    body = await request.json()
+    actor = await auth.actor_context(user_id, request)
+    new_id = await w_rolls.create_lot(
+        actor, color=body.get("color"), fabric_type=body.get("fabric_type"),
+        length_m_milli=int(body.get("length_m_milli") or 0),
+        rolls_count=int(body.get("rolls_count") or 1),
+        owner=body.get("owner") or "factory",
+        customer_id=body.get("customer_id"), supplier_id=body.get("supplier_id"))
+    return await REGISTRY["fabric_rolls"].reader.get(new_id)
 
 
 # ---------------------------------------------------------------------------
