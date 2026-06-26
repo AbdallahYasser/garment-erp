@@ -277,7 +277,7 @@ function renderNav() {
   }
 }
 
-function navigate(id) { currentView = id; renderNav(); document.getElementById("crumb").textContent = t(id); renderView(id); toggleNav(false); }
+function navigate(id) { currentView = id; try { localStorage.setItem("erp_view", id); } catch (e) {} renderNav(); document.getElementById("crumb").textContent = t(id); renderView(id); toggleNav(false); }
 
 // Off-canvas sidebar drawer (mobile). force=true opens, false closes, undefined toggles.
 function toggleNav(force) {
@@ -736,7 +736,7 @@ async function orderDetail(id) {
     <tbody>${cutRows || emptyRow()}</tbody></table>
     ${accRows ? `<h4>${t("required_acc")}</h4><table><thead><tr><th>${t("accessories")}</th><th>${t("quantity")}</th><th>${t("line_total")}</th></tr></thead><tbody>${accRows}</tbody></table>` : ""}
     <div class="modal-actions"><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
-    root.querySelector("#m-close").onclick = closeModal;
+    root.querySelector("#m-close").onclick = () => { closeModal(); renderView("orders"); };
     const adv = root.querySelector("#adv");
     if (adv) adv.onclick = async () => {
       try { await api("POST", `/api/orders/${id}/advance`, { stage: root.querySelector("#stage-sel").value, responsible: root.querySelector("#stage-resp").value });
@@ -894,7 +894,7 @@ async function invoiceDetail(id) {
       <select id="pay-kind"><option value="advance">${t("advance")}</option><option value="progress" selected>${t("progress")}</option><option value="final">${t("final")}</option></select>
       <button class="btn" id="pay-btn">${t("record_payment")}</button></div>` : ""}
     <div class="modal-actions"><a class="btn secondary" href="/api/invoices/${id}/pdf" target="_blank">⬇ ${t("export_pdf")}</a><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
-    root.querySelector("#m-close").onclick = closeModal;
+    root.querySelector("#m-close").onclick = () => { closeModal(); renderView("invoices"); };
     const pb = root.querySelector("#pay-btn");
     if (pb) pb.onclick = async () => {
       try { await api("POST", "/api/payments", { customer_id: inv.customer_id, invoice_id: inv.id, order_id: inv.order_id,
@@ -995,7 +995,15 @@ async function boot() {
     document.getElementById("login").classList.add("hidden");
     document.getElementById("shell").classList.remove("hidden");
     updateWhoami();
-    renderNav(); navigate("dashboard");
+    renderNav();
+    // Restore the last section across refreshes (admin-only views guarded).
+    const ADMIN_VIEWS = ["activity", "users"];
+    const KNOWN = ["dashboard", "customers", "samples", "suppliers", "accessories",
+                   "fabric_rolls", "orders", "inventory_movements", "invoices", ...ADMIN_VIEWS];
+    let saved = "dashboard";
+    try { saved = localStorage.getItem("erp_view") || "dashboard"; } catch (e) {}
+    if (!KNOWN.includes(saved) || (ADMIN_VIEWS.includes(saved) && state.me.role !== "admin")) saved = "dashboard";
+    navigate(saved);
   } catch (e) {
     await showLogin();
   }
