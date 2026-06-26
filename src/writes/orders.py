@@ -326,8 +326,19 @@ async def advance_stage(
         if stage != "cancelled" and target_idx > cut_idx:
             if not (order["unit_cost_cents"] or 0):
                 raise ValueError("enter the unit cost before advancing past Cutting")
-            if not (order["quantity"] or 0):
-                raise ValueError("fill in at least one cut (quantity) before advancing past Cutting")
+            async with db.execute(
+                "SELECT COUNT(*) AS total, "
+                "SUM(CASE WHEN units > 0 THEN 1 ELSE 0 END) AS filled "
+                "FROM order_cuts WHERE order_id = ? AND deleted_at IS NULL",
+                (order_id,)) as c:
+                row = await c.fetchone()
+            total, filled = row["total"], (row["filled"] or 0)
+            if total == 0 or filled == 0:
+                raise ValueError("fill in at least one cut before advancing past Cutting")
+            if filled < total:
+                raise ValueError(
+                    f"enter cut details for all colors before advancing "
+                    f"({filled}/{total} done)")
 
         await db.execute(
             "UPDATE order_stages SET end_date = datetime('now') "
