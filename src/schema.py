@@ -357,6 +357,15 @@ MIGRATIONS: list[tuple[str, str]] = [
     # remaining meters (= length x count at creation).
     ("0030_fabric_rolls_count",
      "ALTER TABLE fabric_rolls ADD COLUMN rolls_count INTEGER NOT NULL DEFAULT 1"),
+
+    # Orders reference a customer fabric-roll lot + how many rolls are used,
+    # and record the pieces actually cut (gates advancing past the Cutting stage).
+    ("0031_orders_fabric_roll",
+     "ALTER TABLE manufacturing_orders ADD COLUMN fabric_roll_id INTEGER"),
+    ("0032_orders_rolls_used",
+     "ALTER TABLE manufacturing_orders ADD COLUMN rolls_used INTEGER NOT NULL DEFAULT 0"),
+    ("0033_orders_pieces_count",
+     "ALTER TABLE manufacturing_orders ADD COLUMN pieces_count INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

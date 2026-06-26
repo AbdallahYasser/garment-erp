@@ -14,6 +14,9 @@ async def all_lookups() -> dict:
             "SELECT id, name, code, customer_id FROM samples WHERE deleted_at IS NULL ORDER BY id DESC"),
         "accessories": await fetch_all(
             "SELECT id, name, unit, unit_price_cents FROM accessories WHERE deleted_at IS NULL ORDER BY name"),
+        "fabric_rolls": await fetch_all(
+            "SELECT id, color, fabric_type, rolls_count, owner, customer_id "
+            "FROM fabric_rolls WHERE deleted_at IS NULL AND rolls_count > 0 ORDER BY id DESC"),
         "orders": await fetch_all(
             "SELECT id, code, customer_id, quantity, status FROM manufacturing_orders "
             "WHERE deleted_at IS NULL ORDER BY id DESC"),

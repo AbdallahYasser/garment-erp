@@ -29,6 +29,9 @@ const I18N = {
     order_date: "تاريخ الطلب", delivery_date: "تاريخ التسليم", unit_cost: "تكلفة القطعة",
     est_total: "التكلفة التقديرية", paid: "المدفوع", balance: "المتبقي",
     stage: "المرحلة", advance_stage: "تقديم المرحلة", responsible: "المسؤول",
+    fabric_roll: "رول القماش", rolls_used: "عدد الرولات في الأمر", rolls_available: "متاح",
+    pieces_cut: "عدد القطع (بعد القص)", save_pieces: "حفظ عدد القطع",
+    pieces_hint: "أدخل عدد القطع بعد القص قبل الانتقال إلى ما بعد مرحلة القص.",
     required_fabric: "القماش المطلوب", required_acc: "الإكسسوارات المطلوبة",
     invoice_no: "رقم الفاتورة", invoice_date: "تاريخ الفاتورة", discount: "الخصم",
     tax: "الضريبة", subtotal: "الإجمالي الفرعي", total: "الإجمالي", description: "الوصف",
@@ -45,8 +48,7 @@ const I18N = {
     cut_cost: "تكلفة القص", sew_cost: "تكلفة الخياطة", finish_cost: "تكلفة التشطيب",
     mfg_cost: "تكلفة التصنيع للقطعة",
     components: "مكونات العينة", spec: "مواصفات الاستهلاك", upload: "رفع ملف",
-    hint_consumption: "هذا الرقم (متر/قطعة) هو ما يستخدمه النظام لحساب القماش المطلوب في أوامر التصنيع. إذا تركته فارغًا، يأخذ النظام الكمية تلقائيًا من بند «القماش» بالمتر.",
-    hint_fabric: "يسجّل قماش العينة النموذجية. تُستخدَم كميته بالمتر في تخطيط الإنتاج فقط عند عدم وجود «مواصفات استهلاك» (التي لها الأولوية دائمًا).",
+    hint_fabric: "للعلم فقط (مرجعي) — يُسجَّل نوع القماش وكميته وتكلفته لمعرفتها، ولا يدخل ضمن حسابات أمر التصنيع.",
     fabric_per_piece_used: "القماش لكل قطعة المستخدَم",
     src_spec: "المصدر: مواصفات الاستهلاك", src_fabric: "المصدر: بند القماش (احتياطي)",
     src_none: "غير محدد — أضف مواصفات استهلاك أو بند قماش بالمتر",
@@ -82,6 +84,9 @@ const I18N = {
     order_date: "Order date", delivery_date: "Delivery date", unit_cost: "Unit cost",
     est_total: "Estimated total", paid: "Paid", balance: "Balance",
     stage: "Stage", advance_stage: "Advance stage", responsible: "Responsible",
+    fabric_roll: "Fabric roll", rolls_used: "Rolls used in order", rolls_available: "available",
+    pieces_cut: "Pieces (cut)", save_pieces: "Save pieces",
+    pieces_hint: "Enter the number of pieces after cutting before moving past the Cutting stage.",
     required_fabric: "Required fabric", required_acc: "Required accessories",
     invoice_no: "Invoice #", invoice_date: "Invoice date", discount: "Discount",
     tax: "Tax", subtotal: "Subtotal", total: "Total", description: "Description",
@@ -98,8 +103,7 @@ const I18N = {
     cut_cost: "Cut cost", sew_cost: "Sew cost", finish_cost: "Finish cost",
     mfg_cost: "Manufacturing cost / piece",
     components: "Sample components", spec: "Consumption spec", upload: "Upload",
-    hint_consumption: "This number (m/piece) is what the system uses to compute the required fabric on manufacturing orders. If you leave it empty, the system falls back to the Fabric quantity (in meters).",
-    hint_fabric: "Records the prototype's fabric. Its meter quantity is used for production planning ONLY when no Consumption spec is set (the spec always takes priority).",
+    hint_fabric: "Reference only — fabric type, quantity and cost are recorded for your records and are NOT used in the manufacturing-order calculation.",
     fabric_per_piece_used: "Fabric per piece used",
     src_spec: "source: Consumption spec", src_fabric: "source: Fabric (fallback)",
     src_none: "not set - add a Consumption spec or a meter Fabric entry",
@@ -554,8 +558,6 @@ const SAMPLE_PARTS = [
       { k: "source", t: "source", type: "select", options: [["factory", "factory_src"], ["customer", "customer_src"]] }] },
   { id: "sample_manufacturing", title: "manufacturing", cols: ["cost_cents:money"],
     fields: [{ k: "cost_cents", t: "mfg_cost", type: "money" }] },
-  { id: "product_specs", title: "spec", hint: "hint_consumption", cols: ["fabric_meters_per_piece_milli:milli"],
-    fields: [{ k: "fabric_meters_per_piece_milli", t: "fabric_per_piece", type: "milli" }] },
   { id: "spec_accessories", title: "required_acc", cols: ["accessory_id:acc", "qty_per_piece_milli:milli"],
     fields: [{ k: "accessory_id", t: "accessories", type: "select", lookup: "accessories" },
       { k: "qty_per_piece_milli", t: "quantity", type: "milli" }] },
@@ -627,26 +629,50 @@ async function renderOrders(view) {
 }
 
 function orderForm() {
-  const fields = [
-    { k: "code", t: "code", type: "text" },
-    { k: "customer_id", t: "customer", type: "select", lookup: "customers", req: true },
-    { k: "sample_id", t: "sample", type: "select", lookup: "samples" },
-    { k: "quantity", t: "quantity", type: "num" },
-    { k: "order_date", t: "order_date", type: "date" }, { k: "delivery_date", t: "delivery_date", type: "date" },
-    { k: "unit_cost_cents", t: "unit_cost", type: "money" },
-    { k: "notes", t: "notes", type: "textarea", full: true },
-  ];
-  modal(t("add") + " · " + t("orders"),
-    `<div class="form-grid">${fields.map((f) => `<div class="field ${f.full ? "full" : ""}"><label>${t(f.t)}${f.req ? " *" : ""}</label>${fieldInput(f, f.default)}</div>`).join("")}</div>
-     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`,
-    (root) => {
-      root.querySelector("#m-cancel").onclick = closeModal;
-      root.querySelector("#m-save").onclick = async () => {
-        const p = collectFields(fields);
-        try { await api("POST", "/api/orders", p); toast(t("saved")); closeModal(); renderView("orders"); }
-        catch (e) { toast(e.message, "err"); }
+  const customers = state.lookups.customers || [];
+  const html = `<div class="form-grid">
+    <div class="field"><label>${t("code")}</label><input id="f_code"></div>
+    <div class="field"><label>${t("customer")} *</label><select id="f_customer_id"><option value="">—</option>${customers.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
+    <div class="field"><label>${t("sample")}</label><select id="f_sample_id"><option value="">—</option></select></div>
+    <div class="field"><label>${t("quantity")}</label><input id="f_quantity" type="number" min="0"></div>
+    <div class="field"><label>${t("fabric_roll")}</label><select id="f_fabric_roll_id"><option value="">—</option></select></div>
+    <div class="field"><label>${t("rolls_used")}</label><input id="f_rolls_used" type="number" min="0" value="0"></div>
+    <div class="field"><label>${t("order_date")}</label><input id="f_order_date" type="date"></div>
+    <div class="field"><label>${t("delivery_date")}</label><input id="f_delivery_date" type="date"></div>
+    <div class="field"><label>${t("unit_cost")}</label><input id="f_unit_cost_cents" type="number" step="any"></div>
+    <div class="field full"><label>${t("notes")}</label><textarea id="f_notes"></textarea></div>
+    </div>
+    <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`;
+  modal(t("add") + " · " + t("orders"), html, (root) => {
+    const gv = (id) => { const e = root.querySelector("#" + id); return e ? e.value : ""; };
+    const gi = (id) => { const v = gv(id); return v ? parseInt(v, 10) : null; };
+    const cust = root.querySelector("#f_customer_id");
+    const samp = root.querySelector("#f_sample_id");
+    const roll = root.querySelector("#f_fabric_roll_id");
+    const repop = () => {
+      const cid = cust.value;
+      const samples = (state.lookups.samples || []).filter((s) => String(s.customer_id) === String(cid));
+      samp.innerHTML = `<option value="">—</option>` + samples.map((s) => `<option value="${s.id}">${esc(s.name || s.code || s.id)}</option>`).join("");
+      const rolls = (state.lookups.fabric_rolls || []).filter((r) => String(r.customer_id) === String(cid));
+      roll.innerHTML = `<option value="">—</option>` + rolls.map((r) => `<option value="${r.id}">${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} (${r.rolls_count} ${t("rolls_available")})</option>`).join("");
+    };
+    cust.onchange = repop; repop();
+    root.querySelector("#m-cancel").onclick = closeModal;
+    root.querySelector("#m-save").onclick = async () => {
+      if (!cust.value) { toast(t("required"), "err"); return; }
+      const p = {
+        code: gv("f_code") || null, customer_id: gi("f_customer_id"),
+        sample_id: gi("f_sample_id"), fabric_roll_id: gi("f_fabric_roll_id"),
+        rolls_used: parseInt(gv("f_rolls_used") || 0, 10) || 0,
+        quantity: parseInt(gv("f_quantity") || 0, 10) || 0,
+        order_date: gv("f_order_date") || null, delivery_date: gv("f_delivery_date") || null,
+        unit_cost_cents: gv("f_unit_cost_cents") ? Math.round(parseFloat(gv("f_unit_cost_cents")) * 100) : null,
+        notes: gv("f_notes") || null,
       };
-    });
+      try { await api("POST", "/api/orders", p); toast(t("saved")); closeModal(); renderView("orders"); await refreshLookups(); }
+      catch (e) { toast(e.message, "err"); }
+    };
+  });
 }
 
 async function orderDetail(id) {
@@ -660,18 +686,26 @@ async function orderDetail(id) {
     <div class="row"><div class="card stat"><div class="n">${money(o.est_total_cents)}</div><div class="l">${t("est_total")}</div></div>
     <div class="card stat"><div class="n">${money(o.paid_cents)}</div><div class="l">${t("paid")}</div></div>
     <div class="card stat"><div class="n">${money(o.balance_cents)}</div><div class="l">${t("balance")}</div></div></div>
+    ${o.fabric_roll_id ? `<p class="muted">${t("fabric_roll")}: ${esc(((o.roll_color || "") + " " + (o.roll_fabric_type || "")).trim())} · ${t("rolls_used")}: ${esc(o.rolls_used)}</p>` : ""}
     <h4>${t("stage")}</h4><div class="stages">${pills}</div>
     ${canAdvance ? `<div class="toolbar"><select id="stage-sel">${STAGES.map((s) => `<option value="${s}" ${s === o.status ? "selected" : ""}>${t(s)}</option>`).join("")}</select>
-      <input id="stage-resp" placeholder="${t("responsible")}"><button class="btn" id="adv">${t("advance_stage")}</button></div>` : ""}
+      <input id="stage-resp" placeholder="${t("responsible")}"><button class="btn" id="adv">${t("advance_stage")}</button></div>
+      <div class="toolbar" style="margin-top:8px"><label class="muted">${t("pieces_cut")}:</label>
+      <input id="pieces-in" type="number" min="0" value="${o.pieces_count || 0}" style="width:130px">
+      <button class="btn secondary" id="save-pieces">${t("save_pieces")}</button></div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">💡 ${t("pieces_hint")}</p>` : ""}
     <h4>${t("est_breakdown")}</h4>
-    <p class="muted">${t("fabric_per_piece_used")}: ${milli(est.fabric_per_piece_milli)} m · ${t("src_" + (est.fabric_source || "none"))}</p>
-    <p class="muted">${t("required_fabric")}: ${milli(est.required_fabric_milli)} m</p>
     <table><thead><tr><th>${t("accessories")}</th><th>${t("quantity")}</th><th>${t("line_total")}</th></tr></thead><tbody>${accRows || emptyRow()}</tbody></table>
     <div class="modal-actions"><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
     root.querySelector("#m-close").onclick = closeModal;
     const adv = root.querySelector("#adv");
     if (adv) adv.onclick = async () => {
       try { await api("POST", `/api/orders/${id}/advance`, { stage: root.querySelector("#stage-sel").value, responsible: root.querySelector("#stage-resp").value });
+        toast(t("saved")); orderDetail(id); } catch (e) { toast(e.message, "err"); }
+    };
+    const sp = root.querySelector("#save-pieces");
+    if (sp) sp.onclick = async () => {
+      try { await api("POST", `/api/orders/${id}/pieces`, { pieces_count: parseInt(root.querySelector("#pieces-in").value || 0, 10) || 0 });
         toast(t("saved")); orderDetail(id); } catch (e) { toast(e.message, "err"); }
     };
   });

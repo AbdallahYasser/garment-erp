@@ -9,13 +9,15 @@ from src.queries.base import fetch_all, fetch_one
 
 
 async def compute_estimate(sample_id: Optional[int], quantity: int) -> dict:
-    """Return required materials + a cost breakdown for `quantity` pieces."""
+    """Cost breakdown for `quantity` pieces.
+
+    Fabric is reference-only and intentionally NOT part of this estimate.
+    Cost = quantity x (manufacturing/piece + accessories/piece) + one-off
+    (factory-supplied blueprint + printing).
+    """
     breakdown = {
         "quantity": quantity,
-        "required_fabric_milli": 0,
         "required_accessories": [],   # [{accessory_id, name, required_milli, cost_cents}]
-        "fabric_per_piece_milli": 0,
-        "fabric_source": "none",      # 'spec' | 'fabric' | 'none' — where meters/piece came from
         "manufacturing_per_piece_cents": 0,
         "accessories_per_piece_cents": 0,
         "one_off_cents": 0,
@@ -23,25 +25,6 @@ async def compute_estimate(sample_id: Optional[int], quantity: int) -> dict:
     }
     if not sample_id or quantity <= 0:
         return breakdown
-
-    # Meters per piece: prefer the Consumption spec; if absent, fall back to the
-    # Fabric component's quantity (meter-unit rows only), treating the sample as
-    # one piece. The spec always wins when both are present.
-    spec = await fetch_one(
-        "SELECT fabric_meters_per_piece_milli FROM product_specs "
-        "WHERE sample_id = ? AND deleted_at IS NULL", (sample_id,))
-    fpp = (spec or {}).get("fabric_meters_per_piece_milli") or 0
-    if fpp > 0:
-        breakdown["fabric_source"] = "spec"
-    else:
-        fabric_fallback = await fetch_one(
-            "SELECT COALESCE(SUM(qty_milli),0) AS s FROM sample_fabric "
-            "WHERE sample_id = ? AND unit = 'meter' AND deleted_at IS NULL", (sample_id,))
-        fpp = (fabric_fallback or {}).get("s") or 0
-        if fpp > 0:
-            breakdown["fabric_source"] = "fabric"
-    breakdown["fabric_per_piece_milli"] = fpp
-    breakdown["required_fabric_milli"] = fpp * quantity
 
     # Per-piece accessory consumption x unit price.
     acc_rows = await fetch_all(
@@ -78,13 +61,11 @@ async def compute_estimate(sample_id: Optional[int], quantity: int) -> dict:
             + (mfg.get("finish_cost_cents") or 0))
     breakdown["manufacturing_per_piece_cents"] = mfg_pp
 
-    # One-off sample-level costs (factory-supplied components only; customer = 0).
+    # One-off sample-level costs (blueprint + printing only; fabric excluded).
     one_off = 0
-    for tbl, col in (("sample_fabric", "cost_cents"),
-                     ("sample_blueprint", "cost_cents"),
-                     ("sample_printing", "cost_cents")):
+    for tbl in ("sample_blueprint", "sample_printing"):
         row = await fetch_one(
-            f"SELECT COALESCE(SUM({col}),0) AS s FROM {tbl} "
+            f"SELECT COALESCE(SUM(cost_cents),0) AS s FROM {tbl} "
             f"WHERE sample_id = ? AND deleted_at IS NULL", (sample_id,))
         one_off += (row or {}).get("s") or 0
     breakdown["one_off_cents"] = one_off
@@ -98,10 +79,12 @@ async def compute_estimate(sample_id: Optional[int], quantity: int) -> dict:
 async def get_detail(order_id: int) -> Optional[dict]:
     order = await fetch_one(
         """
-        SELECT o.*, c.name AS customer_name, s.name AS sample_name
+        SELECT o.*, c.name AS customer_name, s.name AS sample_name,
+               fr.color AS roll_color, fr.fabric_type AS roll_fabric_type
         FROM manufacturing_orders o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN samples s ON s.id = o.sample_id
+        LEFT JOIN fabric_rolls fr ON fr.id = o.fabric_roll_id
         WHERE o.id = ?
         """, (order_id,))
     if not order:

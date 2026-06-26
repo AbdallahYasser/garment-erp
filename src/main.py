@@ -285,10 +285,23 @@ async def order_create(request: Request,
             actor, customer_id=body.get("customer_id"), sample_id=body.get("sample_id"),
             code=body.get("code"), quantity=int(body.get("quantity", 0)),
             order_date=body.get("order_date"), delivery_date=body.get("delivery_date"),
-            unit_cost_cents=body.get("unit_cost_cents"), notes=body.get("notes"))
+            unit_cost_cents=body.get("unit_cost_cents"),
+            fabric_roll_id=body.get("fabric_roll_id"),
+            rolls_used=int(body.get("rolls_used", 0)), notes=body.get("notes"))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return await q_orders.get_detail(new_id)
+
+
+@app.post("/api/orders/{order_id}/pieces")
+async def order_set_pieces(order_id: int, request: Request,
+                           user_id: int = Depends(auth.require_role("production"))):
+    rate_limit("write", user_id)
+    body = await request.json()
+    actor = await auth.actor_context(user_id, request)
+    if not await w_orders.set_pieces(actor, order_id, int(body.get("pieces_count", 0))):
+        raise HTTPException(status_code=404, detail="Order not found")
+    return await q_orders.get_detail(order_id)
 
 
 @app.post("/api/orders/{order_id}/advance")

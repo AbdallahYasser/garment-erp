@@ -14,9 +14,8 @@ def _make_sample_with_spec(client):
 def test_estimate_math(client):
     cid, sid = _make_sample_with_spec(client)
     est = client.get("/api/orders/estimate", params={"sample_id": sid, "quantity": 500}).json()
-    # 500 * (mfg 1700 + acc 250) = 975000 ; fabric 1.5m * 500 = 750m
+    # 500 * (mfg 1700 + acc 250) = 975000 ; fabric is reference-only, not costed
     assert est["est_total_cents"] == 975000
-    assert est["required_fabric_milli"] == 750000
 
 
 def test_order_and_invoice_balance(client):
