@@ -704,8 +704,7 @@ async function orderDetail(id) {
       <input id="cost-in" type="number" step="any" min="0" value="${o.unit_cost_cents ? o.unit_cost_cents / 100 : ""}" style="width:130px">
       <button class="btn secondary" id="save-cost">${t("save")}</button></div>
       <p class="muted" style="font-size:12px;margin:6px 0 0">💡 ${t("cut_gate_hint")}</p>` : ""}
-    <div class="section-head" style="margin-top:14px"><h4 style="margin:0">${t("cut_lines")}</h4>
-      ${canAdvance ? `<button class="btn small" id="add-cut">+ ${t("add_cut")}</button>` : ""}</div>
+    <div class="section-head" style="margin-top:14px"><h4 style="margin:0">${t("cut_lines")}</h4></div>
     <table><thead><tr><th>${t("color")}</th><th>${t("rolls_used")}</th><th>${t("units")}</th><th>${t("sizes")}</th><th>${t("remaining_after_cut")}</th>${canAdvance ? `<th></th>` : ""}</tr></thead>
     <tbody>${cutRows || emptyRow()}</tbody></table>
     ${accRows ? `<h4>${t("required_acc")}</h4><table><thead><tr><th>${t("accessories")}</th><th>${t("quantity")}</th><th>${t("line_total")}</th></tr></thead><tbody>${accRows}</tbody></table>` : ""}
@@ -721,8 +720,6 @@ async function orderDetail(id) {
       try { await api("POST", `/api/orders/${id}/cost`, { unit_cost_cents: Math.round(parseFloat(root.querySelector("#cost-in").value || 0) * 100) });
         toast(t("saved")); orderDetail(id); } catch (e) { toast(e.message, "err"); }
     };
-    const ac = root.querySelector("#add-cut");
-    if (ac) ac.onclick = () => cutForm(o, null);
     root.querySelectorAll("[data-editcut]").forEach((a) => a.onclick = () =>
       cutForm(o, (o.cuts || []).find((cu) => String(cu.id) === a.dataset.editcut)));
     root.querySelectorAll("[data-delcut]").forEach((a) => a.onclick = async () => {
@@ -731,18 +728,14 @@ async function orderDetail(id) {
   });
 }
 
-// Add or fill in one cut line (one color) during the Cutting stage.
+// Fill in one cut line (one color) during the Cutting stage. The color/roll is
+// fixed (chosen at order creation); here you enter units, sizes and leftover.
 function cutForm(order, cut) {
   cut = cut || {};
   const chosenSizes = String(cut.sizes || "").split(",").map((s) => s.trim()).filter(Boolean);
-  const rolls = (state.lookups.fabric_rolls || []).filter((r) => String(r.customer_id) === String(order.customer_id));
-  // Ensure the cut's already-selected roll is always an option even if depleted.
-  if (cut.fabric_roll_id && !rolls.some((r) => r.id === cut.fabric_roll_id)) {
-    rolls.unshift({ id: cut.fabric_roll_id, color: cut.color || "", fabric_type: "", rolls_count: cut.rolls_used || 0 });
-  }
   const remOpts = [["full", "rem_full"], ["three_quarter", "rem_three_quarter"], ["half", "rem_half"], ["quarter", "rem_quarter"], ["custom", "rem_custom"]];
   const html = `<div class="form-grid">
-    <div class="field"><label>${t("fabric_roll")} (${t("color")})</label><select id="c_roll"><option value="">—</option>${rolls.map((r) => `<option value="${r.id}" ${String(cut.fabric_roll_id) === String(r.id) ? "selected" : ""}>${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} (${r.rolls_count} ${t("rolls_available")})</option>`).join("")}</select></div>
+    <div class="field"><label>${t("fabric_roll")} (${t("color")})</label><input value="${esc(cut.color || "-")}" disabled></div>
     <div class="field"><label>${t("rolls_used")}</label><input id="c_rolls" type="number" min="0" value="${cut.rolls_used != null ? cut.rolls_used : 1}"></div>
     <div class="field"><label>${t("units")}</label><input id="c_units" type="number" min="0" value="${cut.units || ""}"></div>
     <div class="field"><label>${t("remaining_after_cut")}</label><select id="c_rem">${remOpts.map(([v, lk]) => `<option value="${v}" ${(cut.remaining_label || "full") === v ? "selected" : ""}>${t(lk)}</option>`).join("")}</select></div>
@@ -750,7 +743,7 @@ function cutForm(order, cut) {
     <div class="field full"><label>${t("sizes")}</label><div id="c_sizes" class="size-set">${["S", "M", "L", "XL", "XXL"].map((s) => `<label class="size-chip"><input type="checkbox" value="${s}" ${chosenSizes.includes(s) ? "checked" : ""}> ${s}</label>`).join("")}</div></div>
     </div>
     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`;
-  modal(t("add_cut"), html, (root) => {
+  modal(t("edit") + " · " + (cut.color || "-"), html, (root) => {
     const rem = root.querySelector("#c_rem");
     const wrap = root.querySelector("#c_custom_wrap");
     rem.onchange = () => { wrap.style.display = rem.value === "custom" ? "" : "none"; };
@@ -758,7 +751,7 @@ function cutForm(order, cut) {
     root.querySelector("#m-save").onclick = async () => {
       const sizes = [...root.querySelectorAll("#c_sizes input:checked")].map((i) => i.value).join(",");
       const p = {
-        fabric_roll_id: root.querySelector("#c_roll").value ? parseInt(root.querySelector("#c_roll").value, 10) : null,
+        fabric_roll_id: cut.fabric_roll_id || null,
         rolls_used: parseInt(root.querySelector("#c_rolls").value || 0, 10) || 0,
         units: parseInt(root.querySelector("#c_units").value || 0, 10) || 0,
         sizes: sizes || null,
