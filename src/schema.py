@@ -345,6 +345,12 @@ MIGRATIONS: list[tuple[str, str]] = [
      "CREATE INDEX IF NOT EXISTS idx_invoices_customer ON invoices(customer_id, status)"),
     ("0028_idx_inventory_item",
      "CREATE INDEX IF NOT EXISTS idx_inventory_item ON inventory_movements(item_type, item_id, owner)"),
+
+    # Single manufacturing cost per piece (replaces separate cut/sew/finish in
+    # the UI). Old columns are kept for historical rows; the estimate falls
+    # back to their sum when this is 0.
+    ("0029_sample_manufacturing_cost",
+     "ALTER TABLE sample_manufacturing ADD COLUMN cost_cents INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

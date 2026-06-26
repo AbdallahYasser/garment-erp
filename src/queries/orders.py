@@ -67,13 +67,15 @@ async def compute_estimate(sample_id: Optional[int], quantity: int) -> dict:
     breakdown["accessories_per_piece_cents"] = acc_per_piece
 
     mfg = await fetch_one(
-        "SELECT cut_cost_cents, sew_cost_cents, finish_cost_cents "
+        "SELECT cost_cents, cut_cost_cents, sew_cost_cents, finish_cost_cents "
         "FROM sample_manufacturing WHERE sample_id = ? AND deleted_at IS NULL "
         "ORDER BY id DESC LIMIT 1", (sample_id,))
     mfg_pp = 0
     if mfg:
-        mfg_pp = (mfg.get("cut_cost_cents") or 0) + (mfg.get("sew_cost_cents") or 0) \
-            + (mfg.get("finish_cost_cents") or 0)
+        # Prefer the single cost; fall back to the legacy cut+sew+finish sum.
+        mfg_pp = mfg.get("cost_cents") or (
+            (mfg.get("cut_cost_cents") or 0) + (mfg.get("sew_cost_cents") or 0)
+            + (mfg.get("finish_cost_cents") or 0))
     breakdown["manufacturing_per_piece_cents"] = mfg_pp
 
     # One-off sample-level costs (factory-supplied components only; customer = 0).

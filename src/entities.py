@@ -85,7 +85,7 @@ _reg(Entity("sample_printing", "sample_printing",
     transform=_zero_cost_if_customer))
 
 _reg(Entity("sample_manufacturing", "sample_manufacturing",
-    ("sample_id", "cut_cost_cents", "sew_cost_cents", "finish_cost_cents"),
+    ("sample_id", "cost_cents"),
     roles=("sales",), required=("sample_id",)))
 
 # --- Product spec / BOM --------------------------------------------------

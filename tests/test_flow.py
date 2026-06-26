@@ -4,8 +4,7 @@
 def _make_sample_with_spec(client):
     cid = client.post("/api/customers", json={"name": "FlowCo"}).json()["id"]
     sid = client.post("/api/samples", json={"name": "Tee", "customer_id": cid}).json()["id"]
-    client.post("/api/sample_manufacturing", json={
-        "sample_id": sid, "cut_cost_cents": 300, "sew_cost_cents": 1200, "finish_cost_cents": 200})
+    client.post("/api/sample_manufacturing", json={"sample_id": sid, "cost_cents": 1700})
     client.post("/api/product_specs", json={"sample_id": sid, "fabric_meters_per_piece_milli": 1500})
     aid = client.post("/api/accessories", json={"name": "Btn", "unit_price_cents": 250}).json()["id"]
     client.post("/api/spec_accessories", json={"sample_id": sid, "accessory_id": aid, "qty_per_piece_milli": 1000})
