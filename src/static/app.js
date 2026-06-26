@@ -175,10 +175,11 @@ function toast(msg, kind = "ok") {
   document.getElementById("toast-root").appendChild(el);
   setTimeout(() => el.remove(), 3000);
 }
-function modal(title, innerHTML, onMount) {
+function modal(title, innerHTML, onMount, onClose) {
   const root = document.getElementById("modal-root");
   root.innerHTML = `<div class="modal-bg"><div class="modal"><h3>${esc(title)}</h3>${innerHTML}</div></div>`;
-  root.querySelector(".modal-bg").addEventListener("mousedown", (e) => { if (e.target.classList.contains("modal-bg")) closeModal(); });
+  // Clicking the backdrop runs the same close logic as the Cancel button.
+  root.querySelector(".modal-bg").addEventListener("mousedown", (e) => { if (e.target.classList.contains("modal-bg")) (onClose || closeModal)(); });
   if (onMount) onMount(root);
 }
 const closeModal = () => { document.getElementById("modal-root").innerHTML = ""; };
@@ -736,7 +737,8 @@ async function orderDetail(id) {
     <tbody>${cutRows || emptyRow()}</tbody></table>
     ${accRows ? `<h4>${t("required_acc")}</h4><table><thead><tr><th>${t("accessories")}</th><th>${t("quantity")}</th><th>${t("line_total")}</th></tr></thead><tbody>${accRows}</tbody></table>` : ""}
     <div class="modal-actions"><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
-    root.querySelector("#m-close").onclick = () => { closeModal(); renderView("orders"); };
+    const closeOrders = () => { closeModal(); renderView("orders"); };
+    root.querySelector("#m-close").onclick = closeOrders;
     const adv = root.querySelector("#adv");
     if (adv) adv.onclick = async () => {
       try { await api("POST", `/api/orders/${id}/advance`, { stage: root.querySelector("#stage-sel").value, responsible: root.querySelector("#stage-resp").value });
@@ -752,7 +754,7 @@ async function orderDetail(id) {
     root.querySelectorAll("[data-delcut]").forEach((a) => a.onclick = async () => {
       if (confirm(t("confirm_del"))) { await api("DELETE", `/api/orders/${id}/cuts/${a.dataset.delcut}`); orderDetail(id); }
     });
-  });
+  }, () => { closeModal(); renderView("orders"); });
 }
 
 // Fill in one cut line (one color) during the Cutting stage. The color/roll is
@@ -902,7 +904,7 @@ async function invoiceDetail(id) {
         toast(t("saved")); invoiceDetail(id); } catch (e) { toast(e.message, "err"); }
     };
     root.querySelectorAll("[data-delpay]").forEach((a) => a.onclick = async () => { if (confirm(t("confirm_del"))) { await api("DELETE", `/api/payments/${a.dataset.delpay}`); invoiceDetail(id); } });
-  });
+  }, () => { closeModal(); renderView("invoices"); });
 }
 
 // ---------------------------------------------------------------------------
