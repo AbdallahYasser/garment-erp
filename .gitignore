@@ -9,3 +9,6 @@ __pycache__/
 data/
 .env
 .DS_Store
+*.pem
+*.local.md
+.secrets/
