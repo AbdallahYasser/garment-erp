@@ -875,7 +875,8 @@ async function showCustomerProfile(id) {
     <p class="muted">${esc(c.phone || "")} · ${esc(c.email || "")}</p>
     <h4>${t("orders")}</h4><table><tbody>${(c.orders || []).map((o) => `<tr><td>${esc(o.code || o.id)}</td><td>${esc(o.quantity)}</td><td>${statusTag(o.status)}</td><td>${money(o.est_total_cents)}</td></tr>`).join("") || emptyRow()}</tbody></table>
     <h4>${t("samples")}</h4><table><tbody>${(c.samples || []).map((s) => `<tr><td>${esc(s.name)}</td><td>${statusTag(s.status)}</td></tr>`).join("") || emptyRow()}</tbody></table>
-    <h4>${t("fabric_rolls")}</h4><table><tbody>${(c.fabric_rolls || []).map((r) => `<tr><td>${esc(r.roll_no || r.id)}</td><td>${esc(r.color || "")}</td><td>${milli(r.remaining_m_milli)} m</td></tr>`).join("") || emptyRow()}</tbody></table>
+    <h4>${t("fabric_rolls")}</h4><table><thead><tr><th>${t("color")}</th><th>${t("fabric_type")}</th><th>${t("rolls_count")}</th><th>${t("remaining_m")}</th></tr></thead>
+    <tbody>${(c.fabric_rolls || []).map((r) => `<tr><td>${esc(r.color || "")}</td><td>${esc(r.fabric_type || "")}</td><td>${esc(r.rolls_count || 0)} ${t("rolls")}</td><td>${milli(r.remaining_m_milli)} m</td></tr>`).join("") || emptyRow()}</tbody></table>
     <div class="modal-actions"><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`,
     (root) => root.querySelector("#m-close").onclick = closeModal);
 }

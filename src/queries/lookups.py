@@ -55,8 +55,9 @@ async def customer_360(customer_id: int) -> Optional[dict]:
     cust["balance_cents"] = cust["billed_cents"] - cust["paid_cents"]
     # Customer-owned stock
     cust["fabric_rolls"] = await fetch_all(
-        "SELECT id, roll_no, color, fabric_type, remaining_m_milli FROM fabric_rolls "
-        "WHERE customer_id = ? AND owner = 'customer' AND deleted_at IS NULL", (customer_id,))
+        "SELECT id, roll_no, color, fabric_type, rolls_count, remaining_m_milli "
+        "FROM fabric_rolls WHERE customer_id = ? AND owner = 'customer' "
+        "AND deleted_at IS NULL ORDER BY id", (customer_id,))
     cust["accessories"] = await fetch_all(
         "SELECT id, name, stock_qty_milli, unit FROM accessories "
         "WHERE customer_id = ? AND source = 'customer' AND deleted_at IS NULL", (customer_id,))
