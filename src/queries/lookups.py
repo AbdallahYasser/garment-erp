@@ -39,11 +39,19 @@ async def customer_360(customer_id: int) -> Optional[dict]:
     paid = await fetch_one(
         "SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments "
         "WHERE customer_id = ? AND deleted_at IS NULL", (customer_id,))
-    billed = await fetch_one(
+    # Headline financials follow the ORDERS (the order is the bill): total =
+    # sum of order costs (excluding cancelled), balance = total - payments.
+    orders_total = await fetch_one(
+        "SELECT COALESCE(SUM(est_total_cents),0) AS s FROM manufacturing_orders "
+        "WHERE customer_id = ? AND deleted_at IS NULL AND status != 'cancelled'",
+        (customer_id,))
+    invoiced = await fetch_one(
         "SELECT COALESCE(SUM(total_cents),0) AS s FROM invoices "
         "WHERE customer_id = ? AND deleted_at IS NULL", (customer_id,))
     cust["paid_cents"] = (paid or {}).get("s") or 0
-    cust["billed_cents"] = (billed or {}).get("s") or 0
+    cust["orders_total_cents"] = (orders_total or {}).get("s") or 0
+    cust["invoiced_cents"] = (invoiced or {}).get("s") or 0
+    cust["billed_cents"] = cust["orders_total_cents"]
     cust["balance_cents"] = cust["billed_cents"] - cust["paid_cents"]
     # Customer-owned stock
     cust["fabric_rolls"] = await fetch_all(
