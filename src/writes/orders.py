@@ -333,8 +333,8 @@ async def advance_stage(
                 (order_id,)) as c:
                 row = await c.fetchone()
             total, filled = row["total"], (row["filled"] or 0)
-            if total == 0 or filled == 0:
-                raise ValueError("fill in at least one cut before advancing past Cutting")
+            if total == 0:
+                raise ValueError("select a fabric roll/color for this order first")
             if filled < total:
                 raise ValueError(
                     f"enter cut details for all colors before advancing "
