@@ -18,8 +18,10 @@ async def all_lookups() -> dict:
             "SELECT id, color, fabric_type, rolls_count, owner, customer_id "
             "FROM fabric_rolls WHERE deleted_at IS NULL AND rolls_count > 0 ORDER BY id DESC"),
         "orders": await fetch_all(
-            "SELECT id, code, customer_id, quantity, status FROM manufacturing_orders "
-            "WHERE deleted_at IS NULL ORDER BY id DESC"),
+            "SELECT o.id, o.code, o.customer_id, o.quantity, o.unit_cost_cents, "
+            "o.status, s.name AS sample_name "
+            "FROM manufacturing_orders o LEFT JOIN samples s ON s.id = o.sample_id "
+            "WHERE o.deleted_at IS NULL ORDER BY o.id DESC"),
     }
 
 

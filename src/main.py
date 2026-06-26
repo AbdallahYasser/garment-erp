@@ -403,6 +403,19 @@ async def invoice_detail(invoice_id: int, user_id: int = Depends(auth.get_curren
     return row
 
 
+@app.get("/api/invoices/{invoice_id}/pdf")
+async def invoice_pdf(invoice_id: int, user_id: int = Depends(auth.get_current_user)):
+    inv = await q_invoices.get_detail(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    from src.pdf import build_invoice_pdf
+    data = build_invoice_pdf(inv)
+    stamp = (inv.get("invoice_date") or time.strftime("%Y-%m-%d"))[:10]
+    fn = f"Invoice_{inv.get('invoice_no') or invoice_id}_{stamp}.pdf"
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+
+
 @app.post("/api/invoices", status_code=201)
 async def invoice_create(request: Request,
                          user_id: int = Depends(auth.require_role("accountant"))):

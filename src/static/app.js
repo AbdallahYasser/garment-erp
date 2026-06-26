@@ -41,6 +41,7 @@ const I18N = {
     invoice_no: "رقم الفاتورة", invoice_date: "تاريخ الفاتورة", discount: "الخصم",
     tax: "الضريبة", subtotal: "الإجمالي الفرعي", total: "الإجمالي", description: "الوصف",
     line_total: "الإجمالي", add_line: "إضافة بند", record_payment: "تسجيل دفعة",
+    export_pdf: "تصدير PDF", select_orders_hint: "اختر أمرًا أو أكثر لملء البنود تلقائيًا",
     amount: "المبلغ", kind: "النوع", advance: "عربون", progress: "أثناء الإنتاج", final: "نهائي",
     role: "الصلاحية", active: "نشط", language: "اللغة", created: "تاريخ الإنشاء",
     pending: "بانتظار الموافقة",
@@ -101,6 +102,7 @@ const I18N = {
     invoice_no: "Invoice #", invoice_date: "Invoice date", discount: "Discount",
     tax: "Tax", subtotal: "Subtotal", total: "Total", description: "Description",
     line_total: "Total", add_line: "Add line", record_payment: "Record payment",
+    export_pdf: "Export PDF", select_orders_hint: "select one or more to auto-fill lines",
     amount: "Amount", kind: "Kind", advance: "Advance", progress: "Progress", final: "Final",
     role: "Role", active: "Active", language: "Language", created: "Created",
     pending: "Pending approval",
@@ -798,6 +800,23 @@ async function renderInvoices(view) {
   });
 }
 
+// Merge selected orders into invoice lines: same piece name + same unit price
+// are combined (quantities summed).
+function linesFromOrders(orderIds) {
+  const byKey = {};
+  for (const oid of orderIds) {
+    const o = (state.lookups.orders || []).find((x) => x.id === oid);
+    if (!o) continue;
+    const desc = o.sample_name || o.code || ("Order " + o.id);
+    const price = o.unit_cost_cents || 0;
+    const key = desc + "|" + price;
+    if (!byKey[key]) byKey[key] = { description: desc, qty: 0, unit_price: price / 100 };
+    byKey[key].qty += (o.quantity || 0);
+  }
+  const merged = Object.values(byKey);
+  return merged.length ? merged : [{ description: "", qty: 1, unit_price: 0 }];
+}
+
 function invoiceForm() {
   let lines = [{ description: "", qty: 1, unit_price: 0 }];
   const lineRow = (l, i) => `<div class="form-grid" style="margin-bottom:6px">
@@ -805,24 +824,37 @@ function invoiceForm() {
     <div class="field"><input data-l="${i}" data-f="qty" type="number" placeholder="${t("quantity")}" value="${l.qty}"></div>
     <div class="field"><input data-l="${i}" data-f="unit_price" type="number" step="any" placeholder="${t("unit_price")}" value="${l.unit_price}"></div></div>`;
   const html = `<div class="form-grid">
-      <div class="field"><label>${t("customer")} *</label><select id="f_customer_id">${(state.lookups.customers || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
-      <div class="field"><label>${t("orders")}</label><select id="f_order_id"><option value="">—</option>${(state.lookups.orders || []).map((o) => `<option value="${o.id}">${esc(o.code || o.id)}</option>`).join("")}</select></div>
+      <div class="field"><label>${t("customer")} *</label><select id="f_customer_id"><option value="">—</option>${(state.lookups.customers || []).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
       <div class="field"><label>${t("invoice_no")}</label><input id="f_invoice_no"></div>
       <div class="field"><label>${t("invoice_date")}</label><input id="f_invoice_date" type="date"></div>
       <div class="field"><label>${t("discount")}</label><input id="f_discount" type="number" step="any" value="0"></div>
       <div class="field"><label>${t("tax")}</label><input id="f_tax" type="number" step="any" value="0"></div>
+      <div class="field full"><label>${t("orders")} (${t("select_orders_hint")})</label><div id="f_orders" class="size-set"></div></div>
     </div><h4>${t("add_line")}</h4><div id="lines"></div><button class="btn small secondary" id="add-line">+ ${t("add_line")}</button>
     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`;
   modal(t("add") + " · " + t("invoices"), html, (root) => {
     const drawLines = () => { root.querySelector("#lines").innerHTML = lines.map(lineRow).join(""); bindLineInputs(); };
     const bindLineInputs = () => root.querySelectorAll("[data-l]").forEach((inp) => inp.oninput = () => { lines[+inp.dataset.l][inp.dataset.f] = inp.value; });
-    drawLines();
+    const cust = root.querySelector("#f_customer_id");
+    const ordersWrap = root.querySelector("#f_orders");
+    const selectedOrders = () => [...ordersWrap.querySelectorAll("input:checked")].map((i) => parseInt(i.dataset.order, 10));
+    const drawOrders = () => {
+      const cid = cust.value;
+      const orders = (state.lookups.orders || []).filter((o) => String(o.customer_id) === String(cid) && o.status !== "cancelled");
+      ordersWrap.innerHTML = orders.length
+        ? orders.map((o) => `<label class="size-chip"><input type="checkbox" data-order="${o.id}"> ${esc(o.code || o.id)} · ${esc(o.sample_name || "")} (${o.quantity || 0} × ${money(o.unit_cost_cents)})</label>`).join("")
+        : `<span class="muted">${t("none")}</span>`;
+      ordersWrap.querySelectorAll("input").forEach((cb) => cb.onchange = () => { lines = linesFromOrders(selectedOrders()); drawLines(); });
+    };
+    cust.onchange = drawOrders; drawOrders(); drawLines();
     root.querySelector("#add-line").onclick = () => { lines.push({ description: "", qty: 1, unit_price: 0 }); drawLines(); };
     root.querySelector("#m-cancel").onclick = closeModal;
     root.querySelector("#m-save").onclick = async () => {
+      if (!cust.value) { toast(t("required"), "err"); return; }
+      const orderIds = selectedOrders();
       const payload = {
-        customer_id: parseInt(root.querySelector("#f_customer_id").value, 10),
-        order_id: root.querySelector("#f_order_id").value ? parseInt(root.querySelector("#f_order_id").value, 10) : null,
+        customer_id: parseInt(cust.value, 10),
+        order_id: orderIds.length ? orderIds[0] : null,
         invoice_no: root.querySelector("#f_invoice_no").value || null,
         invoice_date: root.querySelector("#f_invoice_date").value || null,
         discount_cents: Math.round(parseFloat(root.querySelector("#f_discount").value || 0) * 100),
@@ -851,7 +883,7 @@ async function invoiceDetail(id) {
       <input id="pay-amt" type="number" step="any" placeholder="${t("amount")}">
       <select id="pay-kind"><option value="advance">${t("advance")}</option><option value="progress" selected>${t("progress")}</option><option value="final">${t("final")}</option></select>
       <button class="btn" id="pay-btn">${t("record_payment")}</button></div>` : ""}
-    <div class="modal-actions"><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
+    <div class="modal-actions"><a class="btn secondary" href="/api/invoices/${id}/pdf" target="_blank">⬇ ${t("export_pdf")}</a><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
     root.querySelector("#m-close").onclick = closeModal;
     const pb = root.querySelector("#pay-btn");
     if (pb) pb.onclick = async () => {
