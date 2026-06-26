@@ -474,6 +474,18 @@ async def payment_delete(payment_id: int, request: Request,
 # ---------------------------------------------------------------------------
 # User administration (admin only)
 # ---------------------------------------------------------------------------
+@app.post("/api/admin/reset")
+async def admin_reset(request: Request,
+                      user_id: int = Depends(auth.require_role("admin"))):
+    """Factory reset: wipe all data + activity log, keep app_users. Irreversible."""
+    rate_limit("danger", user_id, max_per_minute=2)
+    body = await request.json()
+    if body.get("confirmation") != "RESET":
+        raise HTTPException(status_code=400, detail="confirmation required")
+    from src.writes.admin import reset_all_data
+    return await reset_all_data()
+
+
 @app.get("/api/users")
 async def users_list(user_id: int = Depends(auth.require_role("admin"))):
     return {"rows": await fetch_all(

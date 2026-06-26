@@ -46,6 +46,9 @@ const I18N = {
     role: "الصلاحية", active: "نشط", language: "اللغة", created: "تاريخ الإنشاء",
     pending: "بانتظار الموافقة",
     users_help: "لإضافة مستخدم جديد: شارك معه رابط النظام (erp.bode1.site). بعد تسجيل دخوله عبر تيليجرام أول مرة سيظهر هنا كحساب «غير نشط». ثم اختر صلاحيته وفعّل خانة «نشط» للموافقة عليه. ولإضافة مدير مالك دائم لا يمكن تعطيله، أضف معرّف تيليجرام الخاص به إلى متغيّر ALLOWED_USERS في Coolify.",
+    danger_zone: "منطقة الخطر", reset_all_data: "تصفير كل البيانات (مع الإبقاء على المستخدمين)",
+    reset_warn: "حذف نهائي لكل البيانات (العملاء، العينات، الأوامر، الفواتير، المخزون، وسجل النشاط) مع الإبقاء على المستخدمين فقط — لتسليم النظام نظيفًا. لا يمكن التراجع.",
+    reset_type_hint: "اكتب RESET للتأكيد", reset_done: "تم تصفير البيانات",
     actor: "المنفّذ", entity: "الكيان", action: "الإجراء", when: "التوقيت",
     open_orders: "أوامر مفتوحة", unpaid_invoices: "فواتير غير مدفوعة", low_stock: "مخزون منخفض",
     recent_activity: "آخر النشاطات", est_breakdown: "تفصيل التكلفة",
@@ -107,6 +110,9 @@ const I18N = {
     role: "Role", active: "Active", language: "Language", created: "Created",
     pending: "Pending approval",
     users_help: "To add a new user: share the site link (erp.bode1.site) with them. After they sign in with Telegram once, they appear here as an inactive account. Then pick their role and tick Active to approve them. For a permanent owner-admin who can't be disabled, add their Telegram ID to the ALLOWED_USERS variable in Coolify.",
+    danger_zone: "Danger zone", reset_all_data: "Reset all data (keep users)",
+    reset_warn: "Permanently delete ALL data (customers, samples, orders, invoices, inventory, activity log) and keep only the users — for a clean handover. Cannot be undone.",
+    reset_type_hint: "Type RESET to confirm", reset_done: "All data reset",
     actor: "Actor", entity: "Entity", action: "Action", when: "When",
     open_orders: "Open orders", unpaid_invoices: "Unpaid invoices", low_stock: "Low stock",
     recent_activity: "Recent activity", est_breakdown: "Cost breakdown",
@@ -631,9 +637,9 @@ async function renderOrders(view) {
   view.innerHTML = `<div class="section-head"><h2>${t("orders")}</h2>
     <div class="toolbar">${state.me.role === "admin" ? `<button class="btn danger small" id="wipe-orders">🗑 ${t("delete_all_orders")}</button>` : ""}
     ${canWrite ? `<button class="btn" id="add">+ ${t("add")}</button>` : ""}</div></div>
-    <div class="card"><table><thead><tr><th>${t("code")}</th><th>${t("customer")}</th><th>${t("sample")}</th>
+    <div class="card"><table><thead><tr><th>${t("customer")}</th><th>${t("sample")}</th>
     <th>${t("quantity")}</th><th>${t("est_total")}</th><th>${t("status")}</th><th>${t("actions")}</th></tr></thead>
-    <tbody>${(d.rows || []).map((o) => `<tr><td>${esc(o.code || o.id)}</td><td>${esc(o.customer_name || "")}</td>
+    <tbody>${(d.rows || []).map((o) => `<tr><td>${esc(o.customer_name || "")}</td>
       <td>${esc(o.sample_name || "")}</td><td>${esc(o.quantity)}</td><td>${money(o.est_total_cents)}</td>
       <td>${statusTag(o.status)}</td><td><a data-open="${o.id}">${t("manage")}</a>${canWrite ? ` · <a data-delorder="${o.id}">${t("del")}</a>` : ""}${state.me.role === "admin" ? ` · <a data-hist="${o.id}">${t("history")}</a>` : ""}</td></tr>`).join("") || emptyRow()}</tbody></table></div>`;
   if (canWrite) document.getElementById("add").onclick = orderForm;
@@ -941,9 +947,18 @@ async function renderUsers(view) {
     <thead><tr><th>${t("name")}</th><th>ID</th><th>${t("role")}</th><th>${t("active")}</th></tr></thead>
     <tbody>${(d.rows || []).map((u) => `<tr><td>${esc(u.name || u.username || "")} ${u.active ? "" : `<span class="tag amber">${t("pending")}</span>`}</td><td class="muted">${u.tg_user_id}</td>
       <td><select data-role="${u.id}">${roles.map((r) => `<option value="${r}" ${u.role === r ? "selected" : ""}>${t("role_" + r)}</option>`).join("")}</select></td>
-      <td><input type="checkbox" data-active="${u.id}" ${u.active ? "checked" : ""}></td></tr>`).join("")}</tbody></table></div>`;
+      <td><input type="checkbox" data-active="${u.id}" ${u.active ? "checked" : ""}></td></tr>`).join("")}</tbody></table></div>
+    <div class="card" style="margin-top:16px;border-color:var(--red)">
+      <div class="section-head"><h3 style="margin:0">⚠️ ${t("danger_zone")}</h3></div>
+      <p class="muted">${t("reset_warn")}</p>
+      <button class="btn danger" id="reset-all">🗑 ${t("reset_all_data")}</button></div>`;
   view.querySelectorAll("[data-role]").forEach((s) => s.onchange = async () => { try { await api("PUT", `/api/users/${s.dataset.role}/role`, { role: s.value }); toast(t("saved")); } catch (e) { toast(e.message, "err"); } });
   view.querySelectorAll("[data-active]").forEach((c) => c.onchange = async () => { try { await api("PUT", `/api/users/${c.dataset.active}/active`, { active: c.checked }); toast(t("saved")); } catch (e) { toast(e.message, "err"); } });
+  document.getElementById("reset-all").onclick = async () => {
+    if (window.prompt(t("reset_warn") + "\n\n" + t("reset_type_hint")) !== "RESET") return;
+    try { await api("POST", "/api/admin/reset", { confirmation: "RESET" }); toast(t("reset_done")); setTimeout(() => location.reload(), 800); }
+    catch (e) { toast(e.message, "err"); }
+  };
 }
 
 // ---------------------------------------------------------------------------
