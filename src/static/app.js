@@ -658,7 +658,8 @@ async function renderOrders(view) {
   view.querySelectorAll("[data-hist]").forEach((a) => a.onclick = () => showHistory("orders", a.dataset.hist));
 }
 
-function orderForm() {
+async function orderForm() {
+  await refreshLookups();   // ensure newly added samples/customers/rolls show up
   const customers = state.lookups.customers || [];
   const html = `<div class="form-grid">
     <div class="field"><label>${t("customer")} *</label><select id="f_customer_id"><option value="">—</option>${customers.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
@@ -822,7 +823,8 @@ function linesFromOrders(orderIds) {
   return merged.length ? merged : [{ description: "", qty: 1, unit_price: 0 }];
 }
 
-function invoiceForm() {
+async function invoiceForm() {
+  await refreshLookups();   // ensure newly added orders/customers show up
   let lines = [{ description: "", qty: 1, unit_price: 0 }];
   const lineRow = (l, i) => `<div class="form-grid" style="margin-bottom:6px">
     <div class="field full"><input data-l="${i}" data-f="description" placeholder="${t("description")}" value="${esc(l.description)}"></div>
@@ -964,7 +966,10 @@ async function renderUsers(view) {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
-async function refreshLookups() { try { state.lookups = await api("GET", "/api/lookups"); } catch (e) {} }
+async function refreshLookups() {
+  try { state.lookups = await api("GET", "/api/lookups"); }
+  catch (e) { console.warn("refreshLookups failed (keeping cached):", e.message); }
+}
 
 function applyLang() {
   document.documentElement.lang = LANG; document.documentElement.dir = LANG === "ar" ? "rtl" : "ltr";
