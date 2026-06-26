@@ -92,6 +92,9 @@ async def get_detail(order_id: int) -> Optional[dict]:
     order["stages"] = await fetch_all(
         "SELECT * FROM order_stages WHERE order_id = ? AND deleted_at IS NULL "
         "ORDER BY id", (order_id,))
+    order["cuts"] = await fetch_all(
+        "SELECT * FROM order_cuts WHERE order_id = ? AND deleted_at IS NULL "
+        "ORDER BY id", (order_id,))
     order["estimate"] = await compute_estimate(order.get("sample_id"), order.get("quantity") or 0)
     paid = await fetch_one(
         "SELECT COALESCE(SUM(amount_cents),0) AS s FROM payments "

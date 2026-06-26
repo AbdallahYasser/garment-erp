@@ -29,9 +29,12 @@ const I18N = {
     order_date: "تاريخ الطلب", delivery_date: "تاريخ التسليم", unit_cost: "تكلفة القطعة",
     est_total: "التكلفة التقديرية", paid: "المدفوع", balance: "المتبقي",
     stage: "المرحلة", advance_stage: "تقديم المرحلة", responsible: "المسؤول",
-    fabric_roll: "رول القماش", rolls_used: "عدد الرولات في الأمر", rolls_available: "متاح",
-    pieces_cut: "عدد القطع (بعد القص)", save_pieces: "حفظ عدد القطع",
-    pieces_hint: "أدخل عدد القطع بعد القص قبل الانتقال إلى ما بعد مرحلة القص.",
+    fabric_roll: "رول القماش", rolls_used: "عدد الرولات", rolls_available: "متاح",
+    cut_lines: "تفاصيل القص (لكل لون)", add_cut: "إضافة قص", units: "عدد القطع", sizes: "المقاسات",
+    remaining_after_cut: "المتبقي من الرول بعد القص", rem_full: "لا شيء (استُخدم كاملًا)",
+    rem_three_quarter: "3/4 متبقي", rem_half: "نصف متبقي", rem_quarter: "ربع متبقي", rem_custom: "مخصص (متر)",
+    total_units: "إجمالي القطع",
+    cut_gate_hint: "في مرحلة القص: أدخل تكلفة القطعة وأضف سطر قص واحدًا على الأقل قبل الانتقال للمرحلة التالية.",
     required_fabric: "القماش المطلوب", required_acc: "الإكسسوارات المطلوبة",
     invoice_no: "رقم الفاتورة", invoice_date: "تاريخ الفاتورة", discount: "الخصم",
     tax: "الضريبة", subtotal: "الإجمالي الفرعي", total: "الإجمالي", description: "الوصف",
@@ -84,9 +87,12 @@ const I18N = {
     order_date: "Order date", delivery_date: "Delivery date", unit_cost: "Unit cost",
     est_total: "Estimated total", paid: "Paid", balance: "Balance",
     stage: "Stage", advance_stage: "Advance stage", responsible: "Responsible",
-    fabric_roll: "Fabric roll", rolls_used: "Rolls used in order", rolls_available: "available",
-    pieces_cut: "Pieces (cut)", save_pieces: "Save pieces",
-    pieces_hint: "Enter the number of pieces after cutting before moving past the Cutting stage.",
+    fabric_roll: "Fabric roll", rolls_used: "Rolls used", rolls_available: "available",
+    cut_lines: "Cut details (per color)", add_cut: "Add cut", units: "Units (pieces)", sizes: "Sizes",
+    remaining_after_cut: "Roll remaining after cut", rem_full: "None (fully used)",
+    rem_three_quarter: "3/4 left", rem_half: "Half left", rem_quarter: "Quarter left", rem_custom: "Custom (m)",
+    total_units: "Total units",
+    cut_gate_hint: "At Cutting: enter the unit cost and add at least one cut line before moving to the next stage.",
     required_fabric: "Required fabric", required_acc: "Required accessories",
     invoice_no: "Invoice #", invoice_date: "Invoice date", discount: "Discount",
     tax: "Tax", subtotal: "Subtotal", total: "Total", description: "Description",
@@ -634,12 +640,8 @@ function orderForm() {
     <div class="field"><label>${t("code")}</label><input id="f_code"></div>
     <div class="field"><label>${t("customer")} *</label><select id="f_customer_id"><option value="">—</option>${customers.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
     <div class="field"><label>${t("sample")}</label><select id="f_sample_id"><option value="">—</option></select></div>
-    <div class="field"><label>${t("quantity")}</label><input id="f_quantity" type="number" min="0"></div>
-    <div class="field"><label>${t("fabric_roll")}</label><select id="f_fabric_roll_id"><option value="">—</option></select></div>
-    <div class="field"><label>${t("rolls_used")}</label><input id="f_rolls_used" type="number" min="0" value="0"></div>
     <div class="field"><label>${t("order_date")}</label><input id="f_order_date" type="date"></div>
     <div class="field"><label>${t("delivery_date")}</label><input id="f_delivery_date" type="date"></div>
-    <div class="field"><label>${t("unit_cost")}</label><input id="f_unit_cost_cents" type="number" step="any"></div>
     <div class="field full"><label>${t("notes")}</label><textarea id="f_notes"></textarea></div>
     </div>
     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`;
@@ -648,13 +650,10 @@ function orderForm() {
     const gi = (id) => { const v = gv(id); return v ? parseInt(v, 10) : null; };
     const cust = root.querySelector("#f_customer_id");
     const samp = root.querySelector("#f_sample_id");
-    const roll = root.querySelector("#f_fabric_roll_id");
     const repop = () => {
       const cid = cust.value;
       const samples = (state.lookups.samples || []).filter((s) => String(s.customer_id) === String(cid));
       samp.innerHTML = `<option value="">—</option>` + samples.map((s) => `<option value="${s.id}">${esc(s.name || s.code || s.id)}</option>`).join("");
-      const rolls = (state.lookups.fabric_rolls || []).filter((r) => String(r.customer_id) === String(cid));
-      roll.innerHTML = `<option value="">—</option>` + rolls.map((r) => `<option value="${r.id}">${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} (${r.rolls_count} ${t("rolls_available")})</option>`).join("");
     };
     cust.onchange = repop; repop();
     root.querySelector("#m-cancel").onclick = closeModal;
@@ -662,14 +661,11 @@ function orderForm() {
       if (!cust.value) { toast(t("required"), "err"); return; }
       const p = {
         code: gv("f_code") || null, customer_id: gi("f_customer_id"),
-        sample_id: gi("f_sample_id"), fabric_roll_id: gi("f_fabric_roll_id"),
-        rolls_used: parseInt(gv("f_rolls_used") || 0, 10) || 0,
-        quantity: parseInt(gv("f_quantity") || 0, 10) || 0,
+        sample_id: gi("f_sample_id"),
         order_date: gv("f_order_date") || null, delivery_date: gv("f_delivery_date") || null,
-        unit_cost_cents: gv("f_unit_cost_cents") ? Math.round(parseFloat(gv("f_unit_cost_cents")) * 100) : null,
         notes: gv("f_notes") || null,
       };
-      try { await api("POST", "/api/orders", p); toast(t("saved")); closeModal(); renderView("orders"); await refreshLookups(); }
+      try { await api("POST", "/api/orders", p); toast(t("saved")); closeModal(); renderView("orders"); }
       catch (e) { toast(e.message, "err"); }
     };
   });
@@ -682,20 +678,26 @@ async function orderDetail(id) {
   const pills = STAGES.map((s, i) => `<span class="stage-pill ${i < stageIdx ? "done" : i === stageIdx ? "current" : ""}">${t(s)}</span>`).join("");
   const accRows = (est.required_accessories || []).map((a) => `<tr><td>${esc(a.name)}</td><td>${milli(a.required_milli)}</td><td>${money(a.cost_total_cents)}</td></tr>`).join("");
   const canAdvance = ROLE_OK("production");
+  const cutRows = (o.cuts || []).map((cu) => `<tr><td>${esc(cu.color || "-")}</td><td>${esc(cu.rolls_used)}</td>
+    <td>${esc(cu.units)}</td><td>${esc(cu.sizes || "")}</td><td>${milli(cu.remaining_m_milli)} m</td>
+    ${canAdvance ? `<td><a data-delcut="${cu.id}">${t("del")}</a></td>` : ""}</tr>`).join("");
   modal(`${t("orders")} · ${esc(o.code || o.id)}`, `
-    <div class="row"><div class="card stat"><div class="n">${money(o.est_total_cents)}</div><div class="l">${t("est_total")}</div></div>
-    <div class="card stat"><div class="n">${money(o.paid_cents)}</div><div class="l">${t("paid")}</div></div>
+    <div class="row"><div class="card stat"><div class="n">${esc(o.quantity || 0)}</div><div class="l">${t("total_units")}</div></div>
+    <div class="card stat"><div class="n">${money(o.unit_cost_cents)}</div><div class="l">${t("unit_cost")}</div></div>
+    <div class="card stat"><div class="n">${money(o.est_total_cents)}</div><div class="l">${t("est_total")}</div></div>
     <div class="card stat"><div class="n">${money(o.balance_cents)}</div><div class="l">${t("balance")}</div></div></div>
-    ${o.fabric_roll_id ? `<p class="muted">${t("fabric_roll")}: ${esc(((o.roll_color || "") + " " + (o.roll_fabric_type || "")).trim())} · ${t("rolls_used")}: ${esc(o.rolls_used)}</p>` : ""}
     <h4>${t("stage")}</h4><div class="stages">${pills}</div>
     ${canAdvance ? `<div class="toolbar"><select id="stage-sel">${STAGES.map((s) => `<option value="${s}" ${s === o.status ? "selected" : ""}>${t(s)}</option>`).join("")}</select>
       <input id="stage-resp" placeholder="${t("responsible")}"><button class="btn" id="adv">${t("advance_stage")}</button></div>
-      <div class="toolbar" style="margin-top:8px"><label class="muted">${t("pieces_cut")}:</label>
-      <input id="pieces-in" type="number" min="0" value="${o.pieces_count || 0}" style="width:130px">
-      <button class="btn secondary" id="save-pieces">${t("save_pieces")}</button></div>
-      <p class="muted" style="font-size:12px;margin:6px 0 0">💡 ${t("pieces_hint")}</p>` : ""}
-    <h4>${t("est_breakdown")}</h4>
-    <table><thead><tr><th>${t("accessories")}</th><th>${t("quantity")}</th><th>${t("line_total")}</th></tr></thead><tbody>${accRows || emptyRow()}</tbody></table>
+      <div class="toolbar" style="margin-top:8px"><label class="muted">${t("unit_cost")}:</label>
+      <input id="cost-in" type="number" step="any" min="0" value="${o.unit_cost_cents ? o.unit_cost_cents / 100 : ""}" style="width:130px">
+      <button class="btn secondary" id="save-cost">${t("save")}</button></div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">💡 ${t("cut_gate_hint")}</p>` : ""}
+    <div class="section-head" style="margin-top:14px"><h4 style="margin:0">${t("cut_lines")}</h4>
+      ${canAdvance ? `<button class="btn small" id="add-cut">+ ${t("add_cut")}</button>` : ""}</div>
+    <table><thead><tr><th>${t("color")}</th><th>${t("rolls_used")}</th><th>${t("units")}</th><th>${t("sizes")}</th><th>${t("remaining_after_cut")}</th>${canAdvance ? `<th></th>` : ""}</tr></thead>
+    <tbody>${cutRows || emptyRow()}</tbody></table>
+    ${accRows ? `<h4>${t("required_acc")}</h4><table><thead><tr><th>${t("accessories")}</th><th>${t("quantity")}</th><th>${t("line_total")}</th></tr></thead><tbody>${accRows}</tbody></table>` : ""}
     <div class="modal-actions"><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
     root.querySelector("#m-close").onclick = closeModal;
     const adv = root.querySelector("#adv");
@@ -703,10 +705,49 @@ async function orderDetail(id) {
       try { await api("POST", `/api/orders/${id}/advance`, { stage: root.querySelector("#stage-sel").value, responsible: root.querySelector("#stage-resp").value });
         toast(t("saved")); orderDetail(id); } catch (e) { toast(e.message, "err"); }
     };
-    const sp = root.querySelector("#save-pieces");
-    if (sp) sp.onclick = async () => {
-      try { await api("POST", `/api/orders/${id}/pieces`, { pieces_count: parseInt(root.querySelector("#pieces-in").value || 0, 10) || 0 });
+    const sc = root.querySelector("#save-cost");
+    if (sc) sc.onclick = async () => {
+      try { await api("POST", `/api/orders/${id}/cost`, { unit_cost_cents: Math.round(parseFloat(root.querySelector("#cost-in").value || 0) * 100) });
         toast(t("saved")); orderDetail(id); } catch (e) { toast(e.message, "err"); }
+    };
+    const ac = root.querySelector("#add-cut");
+    if (ac) ac.onclick = () => cutForm(o);
+    root.querySelectorAll("[data-delcut]").forEach((a) => a.onclick = async () => {
+      if (confirm(t("confirm_del"))) { await api("DELETE", `/api/orders/${id}/cuts/${a.dataset.delcut}`); orderDetail(id); }
+    });
+  });
+}
+
+// Add one cut line (one color) during the Cutting stage.
+function cutForm(order) {
+  const rolls = (state.lookups.fabric_rolls || []).filter((r) => String(r.customer_id) === String(order.customer_id));
+  const remOpts = [["full", "rem_full"], ["three_quarter", "rem_three_quarter"], ["half", "rem_half"], ["quarter", "rem_quarter"], ["custom", "rem_custom"]];
+  const html = `<div class="form-grid">
+    <div class="field"><label>${t("fabric_roll")} (${t("color")})</label><select id="c_roll"><option value="">—</option>${rolls.map((r) => `<option value="${r.id}">${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} (${r.rolls_count} ${t("rolls_available")})</option>`).join("")}</select></div>
+    <div class="field"><label>${t("rolls_used")}</label><input id="c_rolls" type="number" min="0" value="1"></div>
+    <div class="field"><label>${t("units")}</label><input id="c_units" type="number" min="0"></div>
+    <div class="field"><label>${t("remaining_after_cut")}</label><select id="c_rem">${remOpts.map(([v, lk]) => `<option value="${v}">${t(lk)}</option>`).join("")}</select></div>
+    <div class="field" id="c_custom_wrap" style="display:none"><label>${t("rem_custom")}</label><input id="c_custom" type="number" step="any" min="0"></div>
+    <div class="field full"><label>${t("sizes")}</label><div id="c_sizes" class="size-set">${["S", "M", "L", "XL", "XXL"].map((s) => `<label class="size-chip"><input type="checkbox" value="${s}"> ${s}</label>`).join("")}</div></div>
+    </div>
+    <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`;
+  modal(t("add_cut"), html, (root) => {
+    const rem = root.querySelector("#c_rem");
+    const wrap = root.querySelector("#c_custom_wrap");
+    rem.onchange = () => { wrap.style.display = rem.value === "custom" ? "" : "none"; };
+    root.querySelector("#m-cancel").onclick = () => orderDetail(order.id);
+    root.querySelector("#m-save").onclick = async () => {
+      const sizes = [...root.querySelectorAll("#c_sizes input:checked")].map((i) => i.value).join(",");
+      const p = {
+        fabric_roll_id: root.querySelector("#c_roll").value ? parseInt(root.querySelector("#c_roll").value, 10) : null,
+        rolls_used: parseInt(root.querySelector("#c_rolls").value || 0, 10) || 0,
+        units: parseInt(root.querySelector("#c_units").value || 0, 10) || 0,
+        sizes: sizes || null,
+        remaining_label: rem.value,
+        remaining_m_milli: rem.value === "custom" ? Math.round(parseFloat(root.querySelector("#c_custom").value || 0) * 1000) : 0,
+      };
+      try { await api("POST", `/api/orders/${order.id}/cuts`, p); toast(t("saved")); orderDetail(order.id); await refreshLookups(); }
+      catch (e) { toast(e.message, "err"); }
     };
   });
 }

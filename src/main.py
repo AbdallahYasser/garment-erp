@@ -283,24 +283,48 @@ async def order_create(request: Request,
     try:
         new_id = await w_orders.create_order(
             actor, customer_id=body.get("customer_id"), sample_id=body.get("sample_id"),
-            code=body.get("code"), quantity=int(body.get("quantity", 0)),
-            order_date=body.get("order_date"), delivery_date=body.get("delivery_date"),
-            unit_cost_cents=body.get("unit_cost_cents"),
-            fabric_roll_id=body.get("fabric_roll_id"),
-            rolls_used=int(body.get("rolls_used", 0)), notes=body.get("notes"))
+            code=body.get("code"), order_date=body.get("order_date"),
+            delivery_date=body.get("delivery_date"), notes=body.get("notes"))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return await q_orders.get_detail(new_id)
 
 
-@app.post("/api/orders/{order_id}/pieces")
-async def order_set_pieces(order_id: int, request: Request,
-                           user_id: int = Depends(auth.require_role("production"))):
+@app.post("/api/orders/{order_id}/cost")
+async def order_set_cost(order_id: int, request: Request,
+                         user_id: int = Depends(auth.require_role("production"))):
     rate_limit("write", user_id)
     body = await request.json()
     actor = await auth.actor_context(user_id, request)
-    if not await w_orders.set_pieces(actor, order_id, int(body.get("pieces_count", 0))):
+    if not await w_orders.set_unit_cost(actor, order_id, int(body.get("unit_cost_cents", 0))):
         raise HTTPException(status_code=404, detail="Order not found")
+    return await q_orders.get_detail(order_id)
+
+
+@app.post("/api/orders/{order_id}/cuts", status_code=201)
+async def order_add_cut(order_id: int, request: Request,
+                        user_id: int = Depends(auth.require_role("production"))):
+    rate_limit("write", user_id)
+    body = await request.json()
+    actor = await auth.actor_context(user_id, request)
+    try:
+        await w_orders.add_cut(
+            actor, order_id, fabric_roll_id=body.get("fabric_roll_id"),
+            rolls_used=int(body.get("rolls_used", 0)), units=int(body.get("units", 0)),
+            sizes=body.get("sizes"), remaining_label=body.get("remaining_label", "full"),
+            remaining_custom_m_milli=int(body.get("remaining_m_milli", 0)))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return await q_orders.get_detail(order_id)
+
+
+@app.delete("/api/orders/{order_id}/cuts/{cut_id}")
+async def order_remove_cut(order_id: int, cut_id: int, request: Request,
+                           user_id: int = Depends(auth.require_role("production"))):
+    rate_limit("write", user_id)
+    actor = await auth.actor_context(user_id, request)
+    if not await w_orders.remove_cut(actor, order_id, cut_id):
+        raise HTTPException(status_code=404, detail="Cut not found")
     return await q_orders.get_detail(order_id)
 
 

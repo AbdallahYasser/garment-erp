@@ -366,6 +366,27 @@ MIGRATIONS: list[tuple[str, str]] = [
      "ALTER TABLE manufacturing_orders ADD COLUMN rolls_used INTEGER NOT NULL DEFAULT 0"),
     ("0033_orders_pieces_count",
      "ALTER TABLE manufacturing_orders ADD COLUMN pieces_count INTEGER NOT NULL DEFAULT 0"),
+
+    # Cut lines — recorded during the Cutting stage. One line per color: the
+    # roll used, rolls consumed, pieces (units) cut, sizes included, and the
+    # leftover meters returned to that roll's stock. Order quantity = SUM(units).
+    ("0034_order_cuts", """
+        CREATE TABLE IF NOT EXISTS order_cuts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL REFERENCES manufacturing_orders(id),
+            fabric_roll_id INTEGER REFERENCES fabric_rolls(id),
+            color TEXT,
+            rolls_used INTEGER NOT NULL DEFAULT 0,
+            units INTEGER NOT NULL DEFAULT 0,
+            sizes TEXT,
+            remaining_label TEXT,
+            remaining_m_milli INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            deleted_at TEXT
+        )
+    """),
+    ("0035_idx_order_cuts",
+     "CREATE INDEX IF NOT EXISTS idx_order_cuts ON order_cuts(order_id)"),
 ]
 
 
