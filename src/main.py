@@ -324,8 +324,8 @@ async def order_add_cut(order_id: int, request: Request,
         await w_orders.add_cut(
             actor, order_id, fabric_roll_id=body.get("fabric_roll_id"),
             rolls_used=int(body.get("rolls_used", 0)), units=int(body.get("units", 0)),
-            sizes=body.get("sizes"), remaining_label=body.get("remaining_label", "full"),
-            remaining_m_milli=int(body.get("remaining_m_milli", 0)))
+            sizes=body.get("sizes"),
+            remaining_rolls_milli=int(body.get("remaining_rolls_milli", 0)))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return await q_orders.get_detail(order_id)
@@ -339,10 +339,9 @@ async def order_update_cut(order_id: int, cut_id: int, request: Request,
     actor = await auth.actor_context(user_id, request)
     try:
         ok = await w_orders.update_cut(
-            actor, order_id, cut_id, fabric_roll_id=body.get("fabric_roll_id"),
-            rolls_used=int(body.get("rolls_used", 0)), units=int(body.get("units", 0)),
-            sizes=body.get("sizes"), remaining_label=body.get("remaining_label", "full"),
-            remaining_m_milli=int(body.get("remaining_m_milli", 0)))
+            actor, order_id, cut_id, units=int(body.get("units", 0)),
+            sizes=body.get("sizes"),
+            remaining_rolls_milli=int(body.get("remaining_rolls_milli", 0)))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not ok:

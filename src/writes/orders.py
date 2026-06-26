@@ -201,7 +201,11 @@ async def update_cut(actor: dict, order_id: int, cut_id: int, **fields) -> bool:
 
 
 async def _write_cut(db, actor, order_id, cut_id, fields) -> None:
-    """Apply cut detail: reverse the cut's previous stock effect, then apply new."""
+    """Apply cut detail: reverse the cut's previous stock effect, then apply new.
+
+    rolls_used is set at order creation and kept; at cutting only `units`,
+    `sizes` and `remaining_rolls_milli` (rolls left after the cut) are entered.
+    """
     async with db.execute("SELECT * FROM order_cuts WHERE id = ?", (cut_id,)) as c:
         cut = dict(await c.fetchone())
     roll = await _get_roll(db, cut.get("fabric_roll_id"))
@@ -213,17 +217,24 @@ async def _write_cut(db, actor, order_id, cut_id, fields) -> None:
         await _apply_roll(db, roll["id"], cut.get("rolls_used") or 0, old_consumed)
         roll = await _get_roll(db, roll["id"])  # refresh after restore
 
-    rolls_used = max(0, int(fields.get("rolls_used") or 0))
-    units = max(0, int(fields.get("units") or 0))
-    sizes = fields.get("sizes")
-    label = fields.get("remaining_label") or "full"
-    leftover = _leftover(label, fields.get("remaining_m_milli") or 0, per_roll)
+    # rolls_used: only changes if explicitly provided (order creation); else kept.
+    if fields.get("rolls_used") is not None:
+        rolls_used = max(0, int(fields["rolls_used"]))
+    else:
+        rolls_used = cut.get("rolls_used") or 0
+    units = max(0, int(fields.get("units") if fields.get("units") is not None else cut.get("units") or 0))
+    sizes = fields.get("sizes") if "sizes" in fields else cut.get("sizes")
+
+    rem_rolls_milli = max(0, int(fields.get("remaining_rolls_milli") or 0))
+    if rolls_used > 0 and rem_rolls_milli >= rolls_used * 1000:
+        raise ValueError(f"roll remaining must be less than the {rolls_used} rolls of this color")
+    leftover = rem_rolls_milli * per_roll // 1000   # leftover meters
     consumed = _consumed(rolls_used, per_roll, leftover)
 
     await db.execute(
         "UPDATE order_cuts SET rolls_used = ?, units = ?, sizes = ?, "
-        "remaining_label = ?, remaining_m_milli = ? WHERE id = ?",
-        (rolls_used, units, sizes, label, leftover, cut_id))
+        "remaining_label = 'rolls', remaining_rolls_milli = ?, remaining_m_milli = ? WHERE id = ?",
+        (rolls_used, units, sizes, rem_rolls_milli, leftover, cut_id))
 
     if roll and rolls_used > 0:
         await _apply_roll(db, roll["id"], -rolls_used, -consumed)

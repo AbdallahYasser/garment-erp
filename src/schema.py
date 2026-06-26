@@ -392,6 +392,10 @@ MIGRATIONS: list[tuple[str, str]] = [
     # removing a cut can correct its stock movement.
     ("0036_inventory_cut_id",
      "ALTER TABLE inventory_movements ADD COLUMN cut_id INTEGER"),
+
+    # Roll remaining after the cut, expressed in rolls (x1000 so 1.25 -> 1250).
+    ("0037_order_cuts_remaining_rolls",
+     "ALTER TABLE order_cuts ADD COLUMN remaining_rolls_milli INTEGER NOT NULL DEFAULT 0"),
 ]
 
 

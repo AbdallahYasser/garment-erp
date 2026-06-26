@@ -31,8 +31,8 @@ const I18N = {
     stage: "المرحلة", advance_stage: "تقديم المرحلة", responsible: "المسؤول",
     fabric_roll: "رول القماش", rolls_used: "عدد الرولات", rolls_available: "متاح",
     cut_lines: "تفاصيل القص (لكل لون)", add_cut: "إضافة قص", units: "عدد القطع", sizes: "المقاسات",
-    remaining_after_cut: "المتبقي من الرول بعد القص", rem_full: "لا شيء (استُخدم كاملًا)",
-    rem_three_quarter: "3/4 متبقي", rem_half: "نصف متبقي", rem_quarter: "ربع متبقي", rem_custom: "مخصص (متر)",
+    remaining_after_cut: "المتبقي من الرول بعد القص", rolls: "رول",
+    remaining_hint: "يجب أن يكون المتبقي أقل من عدد الرولات:",
     total_units: "إجمالي القطع",
     cut_gate_hint: "في مرحلة القص: أدخل تكلفة القطعة وأضف سطر قص واحدًا على الأقل قبل الانتقال للمرحلة التالية.",
     delete_all_orders: "حذف كل الأوامر",
@@ -91,8 +91,8 @@ const I18N = {
     stage: "Stage", advance_stage: "Advance stage", responsible: "Responsible",
     fabric_roll: "Fabric roll", rolls_used: "Rolls used", rolls_available: "available",
     cut_lines: "Cut details (per color)", add_cut: "Add cut", units: "Units (pieces)", sizes: "Sizes",
-    remaining_after_cut: "Roll remaining after cut", rem_full: "None (fully used)",
-    rem_three_quarter: "3/4 left", rem_half: "Half left", rem_quarter: "Quarter left", rem_custom: "Custom (m)",
+    remaining_after_cut: "Roll remaining after cut", rolls: "rolls",
+    remaining_hint: "Remaining must be less than rolls used:",
     total_units: "Total units",
     cut_gate_hint: "At Cutting: enter the unit cost and add at least one cut line before moving to the next stage.",
     delete_all_orders: "Delete all orders",
@@ -701,7 +701,7 @@ async function orderDetail(id) {
   const accRows = (est.required_accessories || []).map((a) => `<tr><td>${esc(a.name)}</td><td>${milli(a.required_milli)}</td><td>${money(a.cost_total_cents)}</td></tr>`).join("");
   const canAdvance = ROLE_OK("production");
   const cutRows = (o.cuts || []).map((cu) => `<tr><td>${esc(cu.color || "-")}</td><td>${esc(cu.rolls_used)}</td>
-    <td>${esc(cu.units)}</td><td>${esc(cu.sizes || "")}</td><td>${milli(cu.remaining_m_milli)} m</td>
+    <td>${esc(cu.units)}</td><td>${esc(cu.sizes || "")}</td><td>${milli(cu.remaining_rolls_milli)} ${t("rolls")}</td>
     ${canAdvance ? `<td><a data-editcut="${cu.id}">${t("edit")}</a> · <a data-delcut="${cu.id}">${t("del")}</a></td>` : ""}</tr>`).join("");
   modal(`${t("orders")} · ${esc(o.code || o.id)}`, `
     <div class="row"><div class="card stat"><div class="n">${esc(o.quantity || 0)}</div><div class="l">${t("total_units")}</div></div>
@@ -744,36 +744,29 @@ async function orderDetail(id) {
 function cutForm(order, cut) {
   cut = cut || {};
   const chosenSizes = String(cut.sizes || "").split(",").map((s) => s.trim()).filter(Boolean);
-  const remOpts = [["full", "rem_full"], ["three_quarter", "rem_three_quarter"], ["half", "rem_half"], ["quarter", "rem_quarter"], ["custom", "rem_custom"]];
+  const used = cut.rolls_used || 0;
   const html = `<div class="form-grid">
     <div class="field"><label>${t("fabric_roll")} (${t("color")})</label><input value="${esc(cut.color || "-")}" disabled></div>
-    <div class="field"><label>${t("rolls_used")}</label><input id="c_rolls" type="number" min="0" value="${cut.rolls_used != null ? cut.rolls_used : 1}"></div>
+    <div class="field"><label>${t("rolls_used")}</label><input value="${used}" disabled></div>
     <div class="field"><label>${t("units")}</label><input id="c_units" type="number" min="0" value="${cut.units || ""}"></div>
-    <div class="field"><label>${t("remaining_after_cut")}</label><select id="c_rem">${remOpts.map(([v, lk]) => `<option value="${v}" ${(cut.remaining_label || "full") === v ? "selected" : ""}>${t(lk)}</option>`).join("")}</select></div>
-    <div class="field" id="c_custom_wrap" style="display:${cut.remaining_label === "custom" ? "" : "none"}"><label>${t("rem_custom")}</label><input id="c_custom" type="number" step="any" min="0" value="${cut.remaining_label === "custom" && cut.remaining_m_milli ? cut.remaining_m_milli / 1000 : ""}"></div>
+    <div class="field"><label>${t("remaining_after_cut")} (${t("rolls")})</label><input id="c_rem" type="number" step="any" min="0" value="${cut.remaining_rolls_milli ? cut.remaining_rolls_milli / 1000 : ""}"></div>
     <div class="field full"><label>${t("sizes")}</label><div id="c_sizes" class="size-set">${["S", "M", "L", "XL", "XXL"].map((s) => `<label class="size-chip"><input type="checkbox" value="${s}" ${chosenSizes.includes(s) ? "checked" : ""}> ${s}</label>`).join("")}</div></div>
     </div>
+    <p class="muted" style="font-size:12px;margin:6px 0 0">💡 ${t("remaining_hint")} ${used}.</p>
     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`;
   modal(t("edit") + " · " + (cut.color || "-"), html, (root) => {
-    const rem = root.querySelector("#c_rem");
-    const wrap = root.querySelector("#c_custom_wrap");
-    rem.onchange = () => { wrap.style.display = rem.value === "custom" ? "" : "none"; };
     root.querySelector("#m-cancel").onclick = () => orderDetail(order.id);
     root.querySelector("#m-save").onclick = async () => {
       const sizes = [...root.querySelectorAll("#c_sizes input:checked")].map((i) => i.value).join(",");
+      const remRolls = parseFloat(root.querySelector("#c_rem").value || 0) || 0;
+      if (used && remRolls >= used) { toast(t("remaining_hint") + " " + used, "err"); return; }
       const p = {
-        fabric_roll_id: cut.fabric_roll_id || null,
-        rolls_used: parseInt(root.querySelector("#c_rolls").value || 0, 10) || 0,
         units: parseInt(root.querySelector("#c_units").value || 0, 10) || 0,
         sizes: sizes || null,
-        remaining_label: rem.value,
-        remaining_m_milli: rem.value === "custom" ? Math.round(parseFloat(root.querySelector("#c_custom").value || 0) * 1000) : 0,
+        remaining_rolls_milli: Math.round(remRolls * 1000),
       };
-      try {
-        if (cut.id) await api("PUT", `/api/orders/${order.id}/cuts/${cut.id}`, p);
-        else await api("POST", `/api/orders/${order.id}/cuts`, p);
-        toast(t("saved")); orderDetail(order.id); await refreshLookups();
-      } catch (e) { toast(e.message, "err"); }
+      try { await api("PUT", `/api/orders/${order.id}/cuts/${cut.id}`, p); toast(t("saved")); orderDetail(order.id); await refreshLookups(); }
+      catch (e) { toast(e.message, "err"); }
     };
   });
 }
