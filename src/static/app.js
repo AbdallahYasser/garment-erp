@@ -351,9 +351,15 @@ function bindRowActions(id, cfg) {
   });
 }
 
+const SIZE_OPTIONS = ["S", "M", "L", "XL", "XXL"];
 function fieldInput(f, val) {
   const id = "f_" + f.k;
   if (f.type === "textarea") return `<textarea id="${id}">${esc(val ?? "")}</textarea>`;
+  if (f.type === "sizes") {
+    const chosen = String(val ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    return `<div id="${id}" class="size-set">${SIZE_OPTIONS.map((s) =>
+      `<label class="size-chip"><input type="checkbox" value="${s}" ${chosen.includes(s) ? "checked" : ""}> ${s}</label>`).join("")}</div>`;
+  }
   if (f.type === "select") {
     let opts = `<option value="">—</option>`;
     if (f.lookup) {
@@ -374,6 +380,11 @@ function collectFields(fields) {
   for (const f of fields) {
     const el = document.getElementById("f_" + f.k);
     if (!el) continue;
+    if (f.type === "sizes") {
+      const vals = [...el.querySelectorAll("input:checked")].map((i) => i.value);
+      out[f.k] = vals.length ? vals.join(",") : null;
+      continue;
+    }
     let v = el.value;
     if (v === "") { out[f.k] = null; continue; }
     if (f.type === "money") v = Math.round(parseFloat(v) * 100);
@@ -496,7 +507,7 @@ const SAMPLE_PARTS = [
       { k: "source", t: "source", type: "select", options: [["factory", "factory_src"], ["customer", "customer_src"]] }] },
   { id: "sample_blueprint", title: "blueprint", cols: ["design_name", "version", "approved_sizes", "cost_cents:money", "source"],
     fields: [{ k: "design_name", t: "design_name", type: "text" }, { k: "version", t: "version", type: "text" },
-      { k: "approved_sizes", t: "approved_sizes", type: "text" }, { k: "cost_cents", t: "unit_cost", type: "money" },
+      { k: "approved_sizes", t: "approved_sizes", type: "sizes", full: true }, { k: "cost_cents", t: "unit_cost", type: "money" },
       { k: "source", t: "source", type: "select", options: [["factory", "factory_src"], ["customer", "customer_src"]] }] },
   { id: "sample_printing", title: "printing", cols: ["print_type", "description", "cost_cents:money", "source"],
     fields: [{ k: "print_type", t: "print_type", type: "text" }, { k: "description", t: "description", type: "text" },

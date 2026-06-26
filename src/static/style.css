@@ -114,6 +114,13 @@ tbody tr:hover { background: var(--panel-2); }
 .field input, .field select, .field textarea { width: 100%; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
+/* Size checkbox set (blueprint approved sizes) */
+.size-set { display: flex; flex-wrap: wrap; gap: 8px; }
+.size-chip { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 12px; user-select: none; }
+.size-chip input { accent-color: var(--accent); }
+
 /* ---- Activity / history ---- */
 .feed-item { border-bottom: 1px solid var(--border); padding: 12px 0; }
 .feed-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
