@@ -423,8 +423,9 @@ function collectFields(fields) {
   return out;
 }
 
-function entityForm(id, row, cfgOverride, onSaved) {
+async function entityForm(id, row, cfgOverride, onSaved) {
   const cfg = cfgOverride || ENTITIES[id];
+  if (cfg.fields.some((f) => f.lookup)) await refreshLookups();   // fresh dropdown data
   const body = `<div class="form-grid">${cfg.fields.map((f) => `
     <div class="field ${f.full ? "full" : ""}"><label>${t(f.t)}${f.req ? " *" : ""}</label>${fieldInput(f, row ? row[f.k] : f.default)}</div>`).join("")}</div>
     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button>
@@ -527,7 +528,8 @@ async function renderDashboard(view) {
 async function renderSamples(view) { await renderEntity(view, "samples"); }
 
 // Add a lot of N identical fabric rolls in one go (no manual per-roll entry).
-function fabricRollForm() {
+async function fabricRollForm() {
+  await refreshLookups();   // fresh customers/suppliers
   const fields = [
     { k: "color", t: "color", type: "text" },
     { k: "fabric_type", t: "fabric_type", type: "text" },
@@ -590,6 +592,7 @@ function partCell(r, c) {
 }
 
 async function manageSample(sampleId) {
+  await refreshLookups();   // fresh accessories for the "Required accessories" picker
   const canWrite = ROLE_OK("sales", "production");
   const blocks = [];
   for (const p of SAMPLE_PARTS) {
