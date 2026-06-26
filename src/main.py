@@ -284,7 +284,8 @@ async def order_create(request: Request,
         new_id = await w_orders.create_order(
             actor, customer_id=body.get("customer_id"), sample_id=body.get("sample_id"),
             code=body.get("code"), order_date=body.get("order_date"),
-            delivery_date=body.get("delivery_date"), notes=body.get("notes"))
+            delivery_date=body.get("delivery_date"),
+            fabric_roll_ids=body.get("fabric_roll_ids") or [], notes=body.get("notes"))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return await q_orders.get_detail(new_id)
@@ -312,9 +313,28 @@ async def order_add_cut(order_id: int, request: Request,
             actor, order_id, fabric_roll_id=body.get("fabric_roll_id"),
             rolls_used=int(body.get("rolls_used", 0)), units=int(body.get("units", 0)),
             sizes=body.get("sizes"), remaining_label=body.get("remaining_label", "full"),
-            remaining_custom_m_milli=int(body.get("remaining_m_milli", 0)))
+            remaining_m_milli=int(body.get("remaining_m_milli", 0)))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return await q_orders.get_detail(order_id)
+
+
+@app.put("/api/orders/{order_id}/cuts/{cut_id}")
+async def order_update_cut(order_id: int, cut_id: int, request: Request,
+                           user_id: int = Depends(auth.require_role("production"))):
+    rate_limit("write", user_id)
+    body = await request.json()
+    actor = await auth.actor_context(user_id, request)
+    try:
+        ok = await w_orders.update_cut(
+            actor, order_id, cut_id, fabric_roll_id=body.get("fabric_roll_id"),
+            rolls_used=int(body.get("rolls_used", 0)), units=int(body.get("units", 0)),
+            sizes=body.get("sizes"), remaining_label=body.get("remaining_label", "full"),
+            remaining_m_milli=int(body.get("remaining_m_milli", 0)))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=404, detail="Cut not found")
     return await q_orders.get_detail(order_id)
 
 

@@ -1,9 +1,12 @@
-"""Manufacturing-order writes — minimal create, then cutting details.
+"""Manufacturing-order writes.
 
-Order header carries no quantity/cost at creation. During the Cutting stage the
-user records the unit cost and one or more cut lines (per color); the order
-quantity is the sum of the cut units and est_total = unit_cost x quantity.
-Advancing past Cutting requires both unit cost and quantity > 0.
+Order creation selects the customer's sample and which fabric rolls (colors)
+the order will use — each chosen roll becomes a "planned" cut line with no
+quantity yet and no stock deducted. During the Cutting stage the user fills in
+each line (rolls used, units/pieces, sizes, roll leftover), which deducts the
+roll lot and records an inventory issue. Order quantity = sum of cut units;
+est_total = unit_cost x quantity. Advancing past Cutting requires unit cost and
+quantity > 0.
 """
 from typing import Optional
 
@@ -15,10 +18,76 @@ from src.writes import audit
 STAGES = ("new", "prep", "cutting", "printing", "sewing",
           "finishing", "packing", "ready", "delivered", "cancelled")
 
-# Fraction of a roll left uncut for each preset leftover option.
 _LEFTOVER_FRAC = {"full": 0.0, "three_quarter": 0.75, "half": 0.5, "quarter": 0.25}
 
 
+# --------------------------------------------------------------------------- #
+# helpers
+# --------------------------------------------------------------------------- #
+async def _get_roll(db: aiosqlite.Connection, roll_id: Optional[int]) -> Optional[dict]:
+    if not roll_id:
+        return None
+    async with db.execute("SELECT * FROM fabric_rolls WHERE id = ?", (roll_id,)) as c:
+        row = await c.fetchone()
+        return dict(row) if row else None
+
+
+def _leftover(label: str, custom_milli: int, per_roll: int) -> int:
+    if label == "custom":
+        return max(0, int(custom_milli or 0))
+    return int(_LEFTOVER_FRAC.get(label, 0.0) * per_roll)
+
+
+def _consumed(rolls_used: int, per_roll: int, leftover: int) -> int:
+    return max(0, rolls_used * per_roll - leftover)
+
+
+async def _apply_roll(db, roll_id, d_rolls: int, d_remaining: int) -> None:
+    """Adjust a roll lot's count + remaining meters (deltas may be +/-)."""
+    roll = await _get_roll(db, roll_id)
+    if not roll:
+        return
+    await db.execute(
+        "UPDATE fabric_rolls SET rolls_count = ?, remaining_m_milli = ? WHERE id = ?",
+        (max(0, (roll.get("rolls_count") or 0) + d_rolls),
+         max(0, (roll.get("remaining_m_milli") or 0) + d_remaining), roll_id))
+
+
+async def _sync_inventory(db, cut_id, order_id, roll, consumed, rolls_used, units) -> None:
+    """Replace any prior movement for this cut with one reflecting `consumed`."""
+    await db.execute(
+        "UPDATE inventory_movements SET deleted_at = datetime('now') "
+        "WHERE cut_id = ? AND deleted_at IS NULL", (cut_id,))
+    if roll and consumed > 0:
+        await db.execute(
+            """
+            INSERT INTO inventory_movements
+              (item_type, item_id, item_name, owner, customer_id,
+               movement_type, qty_milli, ref_order_id, cut_id, note)
+            VALUES ('fabric', ?, ?, ?, ?, 'issue', ?, ?, ?, ?)
+            """,
+            (roll["id"], f"{roll.get('color') or ''} {roll.get('fabric_type') or ''}".strip(),
+             roll.get("owner") or "factory", roll.get("customer_id"),
+             consumed, order_id, cut_id, f"cut: {rolls_used} roll(s), {units} pcs"))
+
+
+async def _recompute_totals(db: aiosqlite.Connection, order_id: int) -> None:
+    db.row_factory = aiosqlite.Row
+    async with db.execute(
+        "SELECT COALESCE(SUM(units),0) AS q FROM order_cuts "
+        "WHERE order_id = ? AND deleted_at IS NULL", (order_id,)) as c:
+        qty = (await c.fetchone())["q"]
+    async with db.execute(
+        "SELECT unit_cost_cents FROM manufacturing_orders WHERE id = ?", (order_id,)) as c:
+        unit = (await c.fetchone())["unit_cost_cents"] or 0
+    await db.execute(
+        "UPDATE manufacturing_orders SET quantity = ?, est_total_cents = ? WHERE id = ?",
+        (qty, unit * qty, order_id))
+
+
+# --------------------------------------------------------------------------- #
+# create / cost
+# --------------------------------------------------------------------------- #
 async def create_order(
     actor: dict, *,
     customer_id: int,
@@ -26,6 +95,7 @@ async def create_order(
     code: Optional[str] = None,
     order_date: Optional[str] = None,
     delivery_date: Optional[str] = None,
+    fabric_roll_ids: Optional[list] = None,
     notes: Optional[str] = None,
 ) -> int:
     if not customer_id:
@@ -44,28 +114,25 @@ async def create_order(
         await db.execute(
             "INSERT INTO order_stages (order_id, stage, start_date) "
             "VALUES (?, 'new', datetime('now'))", (order_id,))
+
+        # One planned cut line per selected roll/color (no quantity, no deduction).
+        for rid in (fabric_roll_ids or []):
+            roll = await _get_roll(db, rid)
+            await db.execute(
+                "INSERT INTO order_cuts (order_id, fabric_roll_id, color, "
+                "remaining_label, remaining_m_milli) VALUES (?, ?, ?, 'full', 0)",
+                (order_id, rid, (roll or {}).get("color")))
+
         async with db.execute(
             "SELECT * FROM manufacturing_orders WHERE id = ?", (order_id,)) as c:
             after = dict(await c.fetchone())
         await audit.log(actor=actor, entity="manufacturing_orders", entity_id=order_id,
                         action="create", after=after,
-                        summary=f"order created: {code or order_id}", db=db)
+                        summary=f"order created: {code or order_id}"
+                                + (f", {len(fabric_roll_ids)} color(s)" if fabric_roll_ids else ""),
+                        db=db)
         await db.commit()
         return order_id
-
-
-async def _recompute_totals(db: aiosqlite.Connection, order_id: int) -> None:
-    db.row_factory = aiosqlite.Row
-    async with db.execute(
-        "SELECT COALESCE(SUM(units),0) AS q FROM order_cuts "
-        "WHERE order_id = ? AND deleted_at IS NULL", (order_id,)) as c:
-        qty = (await c.fetchone())["q"]
-    async with db.execute(
-        "SELECT unit_cost_cents FROM manufacturing_orders WHERE id = ?", (order_id,)) as c:
-        unit = (await c.fetchone())["unit_cost_cents"] or 0
-    await db.execute(
-        "UPDATE manufacturing_orders SET quantity = ?, est_total_cents = ? WHERE id = ?",
-        (qty, unit * qty, order_id))
 
 
 async def set_unit_cost(actor: dict, order_id: int, unit_cost_cents: int) -> bool:
@@ -91,79 +158,75 @@ async def set_unit_cost(actor: dict, order_id: int, unit_cost_cents: int) -> boo
         return True
 
 
-async def add_cut(
-    actor: dict, order_id: int, *,
-    fabric_roll_id: Optional[int] = None,
-    rolls_used: int = 0,
-    units: int = 0,
-    sizes: Optional[str] = None,
-    remaining_label: str = "full",
-    remaining_custom_m_milli: int = 0,
-) -> int:
-    rolls_used = max(0, int(rolls_used or 0))
-    units = max(0, int(units or 0))
+# --------------------------------------------------------------------------- #
+# cut lines
+# --------------------------------------------------------------------------- #
+async def add_cut(actor: dict, order_id: int, **fields) -> int:
     async with aiosqlite.connect(write_db_uri(), uri=True) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT * FROM manufacturing_orders WHERE id = ? AND deleted_at IS NULL",
+            "SELECT 1 FROM manufacturing_orders WHERE id = ? AND deleted_at IS NULL",
             (order_id,)) as c:
             if not await c.fetchone():
                 raise ValueError("order not found")
-
-        color, per_roll = None, 0
-        roll = None
-        if fabric_roll_id:
-            async with db.execute(
-                "SELECT * FROM fabric_rolls WHERE id = ? AND deleted_at IS NULL",
-                (fabric_roll_id,)) as c:
-                roll = await c.fetchone()
-            if roll:
-                roll = dict(roll)
-                color = roll.get("color")
-                per_roll = roll.get("length_m_milli") or 0
-
-        # Leftover meters of the (last) roll left uncut.
-        if remaining_label == "custom":
-            leftover = max(0, int(remaining_custom_m_milli or 0))
-        else:
-            leftover = int(_LEFTOVER_FRAC.get(remaining_label, 0.0) * per_roll)
-        consumed = max(0, rolls_used * per_roll - leftover)
-
+        roll = await _get_roll(db, fields.get("fabric_roll_id"))
         cur = await db.execute(
-            """
-            INSERT INTO order_cuts
-              (order_id, fabric_roll_id, color, rolls_used, units, sizes,
-               remaining_label, remaining_m_milli)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (order_id, fabric_roll_id, color, rolls_used, units, sizes,
-             remaining_label, leftover))
+            "INSERT INTO order_cuts (order_id, fabric_roll_id, color, "
+            "remaining_label, remaining_m_milli) VALUES (?, ?, ?, 'full', 0)",
+            (order_id, fields.get("fabric_roll_id"), (roll or {}).get("color")))
         cut_id = cur.lastrowid
-
-        if roll and rolls_used > 0:
-            new_count = max(0, (roll.get("rolls_count") or 0) - rolls_used)
-            new_remaining = max(0, (roll.get("remaining_m_milli") or 0) - consumed)
-            await db.execute(
-                "UPDATE fabric_rolls SET rolls_count = ?, remaining_m_milli = ? WHERE id = ?",
-                (new_count, new_remaining, fabric_roll_id))
-            await db.execute(
-                """
-                INSERT INTO inventory_movements
-                  (item_type, item_id, item_name, owner, customer_id,
-                   movement_type, qty_milli, ref_order_id, note)
-                VALUES ('fabric', ?, ?, ?, ?, 'issue', ?, ?, ?)
-                """,
-                (fabric_roll_id, f"{color or ''} {roll.get('fabric_type') or ''}".strip(),
-                 roll.get("owner") or "factory", roll.get("customer_id"),
-                 consumed, order_id, f"cut: {rolls_used} roll(s), {units} pcs"))
-
-        await _recompute_totals(db, order_id)
-        await audit.log(actor=actor, entity="manufacturing_orders", entity_id=order_id,
-                        action="update", after={"cut_id": cut_id, "color": color,
-                        "units": units, "sizes": sizes, "rolls_used": rolls_used},
-                        summary=f"cut: {color or '-'} {units} pcs [{sizes or ''}]", db=db)
+        await _write_cut(db, actor, order_id, cut_id, fields)
         await db.commit()
         return cut_id
+
+
+async def update_cut(actor: dict, order_id: int, cut_id: int, **fields) -> bool:
+    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM order_cuts WHERE id = ? AND order_id = ? AND deleted_at IS NULL",
+            (cut_id, order_id)) as c:
+            if not await c.fetchone():
+                return False
+        await _write_cut(db, actor, order_id, cut_id, fields)
+        await db.commit()
+        return True
+
+
+async def _write_cut(db, actor, order_id, cut_id, fields) -> None:
+    """Apply cut detail: reverse the cut's previous stock effect, then apply new."""
+    async with db.execute("SELECT * FROM order_cuts WHERE id = ?", (cut_id,)) as c:
+        cut = dict(await c.fetchone())
+    roll = await _get_roll(db, cut.get("fabric_roll_id"))
+    per_roll = (roll or {}).get("length_m_milli") or 0
+
+    # Reverse previous deduction for this cut.
+    old_consumed = _consumed(cut.get("rolls_used") or 0, per_roll, cut.get("remaining_m_milli") or 0)
+    if roll and (cut.get("rolls_used") or 0) > 0:
+        await _apply_roll(db, roll["id"], cut.get("rolls_used") or 0, old_consumed)
+        roll = await _get_roll(db, roll["id"])  # refresh after restore
+
+    rolls_used = max(0, int(fields.get("rolls_used") or 0))
+    units = max(0, int(fields.get("units") or 0))
+    sizes = fields.get("sizes")
+    label = fields.get("remaining_label") or "full"
+    leftover = _leftover(label, fields.get("remaining_m_milli") or 0, per_roll)
+    consumed = _consumed(rolls_used, per_roll, leftover)
+
+    await db.execute(
+        "UPDATE order_cuts SET rolls_used = ?, units = ?, sizes = ?, "
+        "remaining_label = ?, remaining_m_milli = ? WHERE id = ?",
+        (rolls_used, units, sizes, label, leftover, cut_id))
+
+    if roll and rolls_used > 0:
+        await _apply_roll(db, roll["id"], -rolls_used, -consumed)
+    await _sync_inventory(db, cut_id, order_id, roll, consumed, rolls_used, units)
+    await _recompute_totals(db, order_id)
+    await audit.log(actor=actor, entity="manufacturing_orders", entity_id=order_id,
+                    action="update",
+                    after={"cut_id": cut_id, "color": cut.get("color"),
+                           "units": units, "sizes": sizes, "rolls_used": rolls_used},
+                    summary=f"cut: {cut.get('color') or '-'} {units} pcs [{sizes or ''}]", db=db)
 
 
 async def remove_cut(actor: dict, order_id: int, cut_id: int) -> bool:
@@ -176,21 +239,14 @@ async def remove_cut(actor: dict, order_id: int, cut_id: int) -> bool:
         if not cut:
             return False
         cut = dict(cut)
+        roll = await _get_roll(db, cut.get("fabric_roll_id"))
+        per_roll = (roll or {}).get("length_m_milli") or 0
+        if roll and (cut.get("rolls_used") or 0) > 0:
+            consumed = _consumed(cut["rolls_used"], per_roll, cut.get("remaining_m_milli") or 0)
+            await _apply_roll(db, roll["id"], cut["rolls_used"], consumed)
+        await _sync_inventory(db, cut_id, order_id, None, 0, 0, 0)
         await db.execute(
             "UPDATE order_cuts SET deleted_at = datetime('now') WHERE id = ?", (cut_id,))
-        # Restore the roll stock that this cut had consumed.
-        if cut.get("fabric_roll_id") and (cut.get("rolls_used") or 0) > 0:
-            async with db.execute(
-                "SELECT * FROM fabric_rolls WHERE id = ?", (cut["fabric_roll_id"],)) as c:
-                roll = await c.fetchone()
-            if roll:
-                roll = dict(roll)
-                per_roll = roll.get("length_m_milli") or 0
-                consumed = max(0, cut["rolls_used"] * per_roll - (cut.get("remaining_m_milli") or 0))
-                await db.execute(
-                    "UPDATE fabric_rolls SET rolls_count = ?, remaining_m_milli = ? WHERE id = ?",
-                    ((roll.get("rolls_count") or 0) + cut["rolls_used"],
-                     (roll.get("remaining_m_milli") or 0) + consumed, cut["fabric_roll_id"]))
         await _recompute_totals(db, order_id)
         await audit.log(actor=actor, entity="manufacturing_orders", entity_id=order_id,
                         action="update", before={"removed_cut": cut_id},
@@ -199,6 +255,9 @@ async def remove_cut(actor: dict, order_id: int, cut_id: int) -> bool:
         return True
 
 
+# --------------------------------------------------------------------------- #
+# stages
+# --------------------------------------------------------------------------- #
 async def advance_stage(
     actor: dict, order_id: int, stage: str,
     *, responsible: Optional[str] = None, notes: Optional[str] = None,
@@ -215,14 +274,13 @@ async def advance_stage(
             return False
         before_status = order["status"]
 
-        # Gate: cannot advance PAST cutting until unit cost + quantity are set.
         cut_idx = STAGES.index("cutting")
         target_idx = STAGES.index(stage)
         if stage != "cancelled" and target_idx > cut_idx:
             if not (order["unit_cost_cents"] or 0):
                 raise ValueError("enter the unit cost before advancing past Cutting")
             if not (order["quantity"] or 0):
-                raise ValueError("add at least one cut (quantity) before advancing past Cutting")
+                raise ValueError("fill in at least one cut (quantity) before advancing past Cutting")
 
         await db.execute(
             "UPDATE order_stages SET end_date = datetime('now') "

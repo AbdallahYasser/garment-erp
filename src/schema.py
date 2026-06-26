@@ -387,6 +387,11 @@ MIGRATIONS: list[tuple[str, str]] = [
     """),
     ("0035_idx_order_cuts",
      "CREATE INDEX IF NOT EXISTS idx_order_cuts ON order_cuts(order_id)"),
+
+    # Link an inventory movement to the cut line that produced it, so editing or
+    # removing a cut can correct its stock movement.
+    ("0036_inventory_cut_id",
+     "ALTER TABLE inventory_movements ADD COLUMN cut_id INTEGER"),
 ]
 
 

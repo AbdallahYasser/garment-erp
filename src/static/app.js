@@ -642,6 +642,7 @@ function orderForm() {
     <div class="field"><label>${t("sample")}</label><select id="f_sample_id"><option value="">—</option></select></div>
     <div class="field"><label>${t("order_date")}</label><input id="f_order_date" type="date"></div>
     <div class="field"><label>${t("delivery_date")}</label><input id="f_delivery_date" type="date"></div>
+    <div class="field full"><label>${t("fabric_roll")} (${t("color")})</label><div id="f_rolls" class="size-set"></div></div>
     <div class="field full"><label>${t("notes")}</label><textarea id="f_notes"></textarea></div>
     </div>
     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`;
@@ -650,10 +651,15 @@ function orderForm() {
     const gi = (id) => { const v = gv(id); return v ? parseInt(v, 10) : null; };
     const cust = root.querySelector("#f_customer_id");
     const samp = root.querySelector("#f_sample_id");
+    const rollsWrap = root.querySelector("#f_rolls");
     const repop = () => {
       const cid = cust.value;
       const samples = (state.lookups.samples || []).filter((s) => String(s.customer_id) === String(cid));
       samp.innerHTML = `<option value="">—</option>` + samples.map((s) => `<option value="${s.id}">${esc(s.name || s.code || s.id)}</option>`).join("");
+      const rolls = (state.lookups.fabric_rolls || []).filter((r) => String(r.customer_id) === String(cid));
+      rollsWrap.innerHTML = rolls.length
+        ? rolls.map((r) => `<label class="size-chip"><input type="checkbox" value="${r.id}"> ${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} (${r.rolls_count})</label>`).join("")
+        : `<span class="muted">${t("none")}</span>`;
     };
     cust.onchange = repop; repop();
     root.querySelector("#m-cancel").onclick = closeModal;
@@ -662,6 +668,7 @@ function orderForm() {
       const p = {
         code: gv("f_code") || null, customer_id: gi("f_customer_id"),
         sample_id: gi("f_sample_id"),
+        fabric_roll_ids: [...rollsWrap.querySelectorAll("input:checked")].map((i) => parseInt(i.value, 10)),
         order_date: gv("f_order_date") || null, delivery_date: gv("f_delivery_date") || null,
         notes: gv("f_notes") || null,
       };
@@ -680,7 +687,7 @@ async function orderDetail(id) {
   const canAdvance = ROLE_OK("production");
   const cutRows = (o.cuts || []).map((cu) => `<tr><td>${esc(cu.color || "-")}</td><td>${esc(cu.rolls_used)}</td>
     <td>${esc(cu.units)}</td><td>${esc(cu.sizes || "")}</td><td>${milli(cu.remaining_m_milli)} m</td>
-    ${canAdvance ? `<td><a data-delcut="${cu.id}">${t("del")}</a></td>` : ""}</tr>`).join("");
+    ${canAdvance ? `<td><a data-editcut="${cu.id}">${t("edit")}</a> · <a data-delcut="${cu.id}">${t("del")}</a></td>` : ""}</tr>`).join("");
   modal(`${t("orders")} · ${esc(o.code || o.id)}`, `
     <div class="row"><div class="card stat"><div class="n">${esc(o.quantity || 0)}</div><div class="l">${t("total_units")}</div></div>
     <div class="card stat"><div class="n">${money(o.unit_cost_cents)}</div><div class="l">${t("unit_cost")}</div></div>
@@ -711,24 +718,32 @@ async function orderDetail(id) {
         toast(t("saved")); orderDetail(id); } catch (e) { toast(e.message, "err"); }
     };
     const ac = root.querySelector("#add-cut");
-    if (ac) ac.onclick = () => cutForm(o);
+    if (ac) ac.onclick = () => cutForm(o, null);
+    root.querySelectorAll("[data-editcut]").forEach((a) => a.onclick = () =>
+      cutForm(o, (o.cuts || []).find((cu) => String(cu.id) === a.dataset.editcut)));
     root.querySelectorAll("[data-delcut]").forEach((a) => a.onclick = async () => {
       if (confirm(t("confirm_del"))) { await api("DELETE", `/api/orders/${id}/cuts/${a.dataset.delcut}`); orderDetail(id); }
     });
   });
 }
 
-// Add one cut line (one color) during the Cutting stage.
-function cutForm(order) {
+// Add or fill in one cut line (one color) during the Cutting stage.
+function cutForm(order, cut) {
+  cut = cut || {};
+  const chosenSizes = String(cut.sizes || "").split(",").map((s) => s.trim()).filter(Boolean);
   const rolls = (state.lookups.fabric_rolls || []).filter((r) => String(r.customer_id) === String(order.customer_id));
+  // Ensure the cut's already-selected roll is always an option even if depleted.
+  if (cut.fabric_roll_id && !rolls.some((r) => r.id === cut.fabric_roll_id)) {
+    rolls.unshift({ id: cut.fabric_roll_id, color: cut.color || "", fabric_type: "", rolls_count: cut.rolls_used || 0 });
+  }
   const remOpts = [["full", "rem_full"], ["three_quarter", "rem_three_quarter"], ["half", "rem_half"], ["quarter", "rem_quarter"], ["custom", "rem_custom"]];
   const html = `<div class="form-grid">
-    <div class="field"><label>${t("fabric_roll")} (${t("color")})</label><select id="c_roll"><option value="">—</option>${rolls.map((r) => `<option value="${r.id}">${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} (${r.rolls_count} ${t("rolls_available")})</option>`).join("")}</select></div>
-    <div class="field"><label>${t("rolls_used")}</label><input id="c_rolls" type="number" min="0" value="1"></div>
-    <div class="field"><label>${t("units")}</label><input id="c_units" type="number" min="0"></div>
-    <div class="field"><label>${t("remaining_after_cut")}</label><select id="c_rem">${remOpts.map(([v, lk]) => `<option value="${v}">${t(lk)}</option>`).join("")}</select></div>
-    <div class="field" id="c_custom_wrap" style="display:none"><label>${t("rem_custom")}</label><input id="c_custom" type="number" step="any" min="0"></div>
-    <div class="field full"><label>${t("sizes")}</label><div id="c_sizes" class="size-set">${["S", "M", "L", "XL", "XXL"].map((s) => `<label class="size-chip"><input type="checkbox" value="${s}"> ${s}</label>`).join("")}</div></div>
+    <div class="field"><label>${t("fabric_roll")} (${t("color")})</label><select id="c_roll"><option value="">—</option>${rolls.map((r) => `<option value="${r.id}" ${String(cut.fabric_roll_id) === String(r.id) ? "selected" : ""}>${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} (${r.rolls_count} ${t("rolls_available")})</option>`).join("")}</select></div>
+    <div class="field"><label>${t("rolls_used")}</label><input id="c_rolls" type="number" min="0" value="${cut.rolls_used != null ? cut.rolls_used : 1}"></div>
+    <div class="field"><label>${t("units")}</label><input id="c_units" type="number" min="0" value="${cut.units || ""}"></div>
+    <div class="field"><label>${t("remaining_after_cut")}</label><select id="c_rem">${remOpts.map(([v, lk]) => `<option value="${v}" ${(cut.remaining_label || "full") === v ? "selected" : ""}>${t(lk)}</option>`).join("")}</select></div>
+    <div class="field" id="c_custom_wrap" style="display:${cut.remaining_label === "custom" ? "" : "none"}"><label>${t("rem_custom")}</label><input id="c_custom" type="number" step="any" min="0" value="${cut.remaining_label === "custom" && cut.remaining_m_milli ? cut.remaining_m_milli / 1000 : ""}"></div>
+    <div class="field full"><label>${t("sizes")}</label><div id="c_sizes" class="size-set">${["S", "M", "L", "XL", "XXL"].map((s) => `<label class="size-chip"><input type="checkbox" value="${s}" ${chosenSizes.includes(s) ? "checked" : ""}> ${s}</label>`).join("")}</div></div>
     </div>
     <div class="modal-actions"><button class="btn secondary" id="m-cancel">${t("cancel")}</button><button class="btn" id="m-save">${t("save")}</button></div>`;
   modal(t("add_cut"), html, (root) => {
@@ -746,8 +761,11 @@ function cutForm(order) {
         remaining_label: rem.value,
         remaining_m_milli: rem.value === "custom" ? Math.round(parseFloat(root.querySelector("#c_custom").value || 0) * 1000) : 0,
       };
-      try { await api("POST", `/api/orders/${order.id}/cuts`, p); toast(t("saved")); orderDetail(order.id); await refreshLookups(); }
-      catch (e) { toast(e.message, "err"); }
+      try {
+        if (cut.id) await api("PUT", `/api/orders/${order.id}/cuts/${cut.id}`, p);
+        else await api("POST", `/api/orders/${order.id}/cuts`, p);
+        toast(t("saved")); orderDetail(order.id); await refreshLookups();
+      } catch (e) { toast(e.message, "err"); }
     };
   });
 }
