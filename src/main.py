@@ -285,7 +285,7 @@ async def order_create(request: Request,
             actor, customer_id=body.get("customer_id"), sample_id=body.get("sample_id"),
             code=body.get("code"), order_date=body.get("order_date"),
             delivery_date=body.get("delivery_date"),
-            fabric_roll_ids=body.get("fabric_roll_ids") or [], notes=body.get("notes"))
+            roll_lines=body.get("roll_lines") or [], notes=body.get("notes"))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return await q_orders.get_detail(new_id)

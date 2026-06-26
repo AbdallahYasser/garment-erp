@@ -658,7 +658,9 @@ function orderForm() {
       samp.innerHTML = `<option value="">—</option>` + samples.map((s) => `<option value="${s.id}">${esc(s.name || s.code || s.id)}</option>`).join("");
       const rolls = (state.lookups.fabric_rolls || []).filter((r) => String(r.customer_id) === String(cid));
       rollsWrap.innerHTML = rolls.length
-        ? rolls.map((r) => `<label class="size-chip"><input type="checkbox" value="${r.id}"> ${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} (${r.rolls_count})</label>`).join("")
+        ? rolls.map((r) => `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="min-width:150px">${esc(((r.color || "") + " " + (r.fabric_type || "")).trim())} <span class="muted">(${r.rolls_count} ${t("rolls_available")})</span></span>
+            <input type="number" min="0" max="${r.rolls_count}" value="0" data-roll="${r.id}" style="width:100px" placeholder="${t("rolls_used")}"></div>`).join("")
         : `<span class="muted">${t("none")}</span>`;
     };
     cust.onchange = repop; repop();
@@ -668,7 +670,9 @@ function orderForm() {
       const p = {
         code: gv("f_code") || null, customer_id: gi("f_customer_id"),
         sample_id: gi("f_sample_id"),
-        fabric_roll_ids: [...rollsWrap.querySelectorAll("input:checked")].map((i) => parseInt(i.value, 10)),
+        roll_lines: [...rollsWrap.querySelectorAll("input[data-roll]")]
+          .map((i) => ({ fabric_roll_id: parseInt(i.dataset.roll, 10), rolls_used: parseInt(i.value || 0, 10) || 0 }))
+          .filter((l) => l.rolls_used > 0),
         order_date: gv("f_order_date") || null, delivery_date: gv("f_delivery_date") || null,
         notes: gv("f_notes") || null,
       };

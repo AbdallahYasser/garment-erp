@@ -95,7 +95,7 @@ async def create_order(
     code: Optional[str] = None,
     order_date: Optional[str] = None,
     delivery_date: Optional[str] = None,
-    fabric_roll_ids: Optional[list] = None,
+    roll_lines: Optional[list] = None,   # [{fabric_roll_id, rolls_used}]
     notes: Optional[str] = None,
 ) -> int:
     if not customer_id:
@@ -115,13 +115,20 @@ async def create_order(
             "INSERT INTO order_stages (order_id, stage, start_date) "
             "VALUES (?, 'new', datetime('now'))", (order_id,))
 
-        # One planned cut line per selected roll/color (no quantity, no deduction).
-        for rid in (fabric_roll_ids or []):
+        # One cut line per selected roll/color with its rolls count. The rolls
+        # are reserved (deducted) now; units/sizes/leftover are filled at cutting.
+        for line in (roll_lines or []):
+            rid = line.get("fabric_roll_id")
+            ru = max(0, int(line.get("rolls_used") or 0))
             roll = await _get_roll(db, rid)
-            await db.execute(
+            cur2 = await db.execute(
                 "INSERT INTO order_cuts (order_id, fabric_roll_id, color, "
                 "remaining_label, remaining_m_milli) VALUES (?, ?, ?, 'full', 0)",
                 (order_id, rid, (roll or {}).get("color")))
+            if ru > 0:
+                await _write_cut(db, actor, order_id, cur2.lastrowid,
+                                 {"fabric_roll_id": rid, "rolls_used": ru,
+                                  "units": 0, "remaining_label": "full"})
 
         async with db.execute(
             "SELECT * FROM manufacturing_orders WHERE id = ?", (order_id,)) as c:
@@ -129,7 +136,7 @@ async def create_order(
         await audit.log(actor=actor, entity="manufacturing_orders", entity_id=order_id,
                         action="create", after=after,
                         summary=f"order created: {code or order_id}"
-                                + (f", {len(fabric_roll_ids)} color(s)" if fabric_roll_ids else ""),
+                                + (f", {len(roll_lines)} color(s)" if roll_lines else ""),
                         db=db)
         await db.commit()
         return order_id
