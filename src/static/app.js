@@ -228,9 +228,9 @@ const ENTITIES = {
       { k: "note", t: "notes", type: "textarea", full: true },
     ] },
   samples: { roles: ["sales"], label: "samples", search: true,
-    columns: ["code", "name", "status"],
+    columns: ["name", "status"],
     fields: [
-      { k: "name", t: "name", type: "text", req: true }, { k: "code", t: "code", type: "text" },
+      { k: "name", t: "name", type: "text", req: true },
       { k: "customer_id", t: "customer", type: "select", lookup: "customers" },
       { k: "status", t: "status", type: "select", options: [["draft", "draft"], ["approved", "approved"], ["archived", "archived"]] },
       { k: "notes", t: "notes", type: "textarea", full: true },
@@ -655,7 +655,6 @@ async function renderOrders(view) {
 function orderForm() {
   const customers = state.lookups.customers || [];
   const html = `<div class="form-grid">
-    <div class="field"><label>${t("code")}</label><input id="f_code"></div>
     <div class="field"><label>${t("customer")} *</label><select id="f_customer_id"><option value="">—</option>${customers.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></div>
     <div class="field"><label>${t("sample")}</label><select id="f_sample_id"><option value="">—</option></select></div>
     <div class="field"><label>${t("order_date")}</label><input id="f_order_date" type="date"></div>
@@ -686,7 +685,7 @@ function orderForm() {
     root.querySelector("#m-save").onclick = async () => {
       if (!cust.value) { toast(t("required"), "err"); return; }
       const p = {
-        code: gv("f_code") || null, customer_id: gi("f_customer_id"),
+        customer_id: gi("f_customer_id"),
         sample_id: gi("f_sample_id"),
         roll_lines: [...rollsWrap.querySelectorAll("input[data-roll]")]
           .map((i) => ({ fabric_roll_id: parseInt(i.dataset.roll, 10), rolls_used: parseInt(i.value || 0, 10) || 0 }))
