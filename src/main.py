@@ -359,6 +359,16 @@ async def order_remove_cut(order_id: int, cut_id: int, request: Request,
     return await q_orders.get_detail(order_id)
 
 
+@app.delete("/api/orders/{order_id}", status_code=204)
+async def order_delete(order_id: int, request: Request,
+                       user_id: int = Depends(auth.require_role("production"))):
+    rate_limit("write", user_id)
+    actor = await auth.actor_context(user_id, request)
+    if not await w_orders.delete_order(actor, order_id):
+        raise HTTPException(status_code=404, detail="Order not found")
+    return Response(status_code=204)
+
+
 @app.post("/api/orders/{order_id}/advance")
 async def order_advance(order_id: int, request: Request,
                         user_id: int = Depends(auth.require_role("production"))):
@@ -409,6 +419,16 @@ async def invoice_create(request: Request,
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return await q_invoices.get_detail(new_id)
+
+
+@app.delete("/api/invoices/{invoice_id}", status_code=204)
+async def invoice_delete(invoice_id: int, request: Request,
+                         user_id: int = Depends(auth.require_role("accountant"))):
+    rate_limit("write", user_id)
+    actor = await auth.actor_context(user_id, request)
+    if not await w_invoices.delete_invoice(actor, invoice_id):
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return Response(status_code=204)
 
 
 @app.post("/api/payments", status_code=201)

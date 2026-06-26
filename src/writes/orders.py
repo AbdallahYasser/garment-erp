@@ -276,6 +276,46 @@ async def remove_cut(actor: dict, order_id: int, cut_id: int) -> bool:
 # --------------------------------------------------------------------------- #
 # stages
 # --------------------------------------------------------------------------- #
+async def delete_order(actor: dict, order_id: int) -> bool:
+    """Soft-delete one order (+ its cuts/stages/inventory movements) and restore
+    the fabric-roll stock its cuts had consumed."""
+    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM manufacturing_orders WHERE id = ? AND deleted_at IS NULL",
+            (order_id,)) as c:
+            order = await c.fetchone()
+        if not order:
+            return False
+        order = dict(order)
+        async with db.execute(
+            "SELECT * FROM order_cuts WHERE order_id = ? AND deleted_at IS NULL",
+            (order_id,)) as c:
+            cuts = [dict(r) for r in await c.fetchall()]
+        for cut in cuts:
+            if cut.get("fabric_roll_id") and (cut.get("rolls_used") or 0) > 0:
+                roll = await _get_roll(db, cut["fabric_roll_id"])
+                if roll:
+                    per_roll = roll.get("length_m_milli") or 0
+                    consumed = _consumed(cut["rolls_used"], per_roll,
+                                         cut.get("remaining_m_milli") or 0)
+                    await _apply_roll(db, roll["id"], cut["rolls_used"], consumed)
+        await db.execute("UPDATE inventory_movements SET deleted_at = datetime('now') "
+                         "WHERE ref_order_id = ? AND deleted_at IS NULL", (order_id,))
+        await db.execute("UPDATE order_cuts SET deleted_at = datetime('now') "
+                         "WHERE order_id = ? AND deleted_at IS NULL", (order_id,))
+        await db.execute("UPDATE order_stages SET deleted_at = datetime('now') "
+                         "WHERE order_id = ? AND deleted_at IS NULL", (order_id,))
+        await db.execute("UPDATE manufacturing_orders SET deleted_at = datetime('now') "
+                         "WHERE id = ?", (order_id,))
+        await audit.log(actor=actor, entity="manufacturing_orders", entity_id=order_id,
+                        action="delete", before=order,
+                        summary=f"order deleted: {order.get('code') or order_id}; "
+                                f"roll stock restored", db=db)
+        await db.commit()
+        return True
+
+
 async def wipe_all_orders(actor: dict) -> dict:
     """Delete every order + its cuts/stages/order-linked inventory movements,
     restoring the fabric-roll stock the cuts had consumed. Append-only audit

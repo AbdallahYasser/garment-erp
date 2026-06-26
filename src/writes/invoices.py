@@ -84,6 +84,28 @@ async def create_invoice(
         return invoice_id
 
 
+async def delete_invoice(actor: dict, invoice_id: int) -> bool:
+    """Soft-delete an invoice and its lines. Payments are kept (money received)."""
+    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM invoices WHERE id = ? AND deleted_at IS NULL",
+            (invoice_id,)) as c:
+            inv = await c.fetchone()
+        if not inv:
+            return False
+        inv = dict(inv)
+        await db.execute("UPDATE invoice_lines SET deleted_at = datetime('now') "
+                         "WHERE invoice_id = ? AND deleted_at IS NULL", (invoice_id,))
+        await db.execute("UPDATE invoices SET deleted_at = datetime('now') WHERE id = ?",
+                         (invoice_id,))
+        await audit.log(actor=actor, entity="invoices", entity_id=invoice_id,
+                        action="delete", before=inv,
+                        summary=f"invoice deleted: {inv.get('invoice_no') or invoice_id}", db=db)
+        await db.commit()
+        return True
+
+
 async def recompute(invoice_id: int) -> None:
     async with aiosqlite.connect(write_db_uri(), uri=True) as db:
         await _recompute_totals(db, invoice_id)

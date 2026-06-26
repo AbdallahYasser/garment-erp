@@ -633,8 +633,13 @@ async function renderOrders(view) {
     <th>${t("quantity")}</th><th>${t("est_total")}</th><th>${t("status")}</th><th>${t("actions")}</th></tr></thead>
     <tbody>${(d.rows || []).map((o) => `<tr><td>${esc(o.code || o.id)}</td><td>${esc(o.customer_name || "")}</td>
       <td>${esc(o.sample_name || "")}</td><td>${esc(o.quantity)}</td><td>${money(o.est_total_cents)}</td>
-      <td>${statusTag(o.status)}</td><td><a data-open="${o.id}">${t("manage")}</a>${state.me.role === "admin" ? ` · <a data-hist="${o.id}">${t("history")}</a>` : ""}</td></tr>`).join("") || emptyRow()}</tbody></table></div>`;
+      <td>${statusTag(o.status)}</td><td><a data-open="${o.id}">${t("manage")}</a>${canWrite ? ` · <a data-delorder="${o.id}">${t("del")}</a>` : ""}${state.me.role === "admin" ? ` · <a data-hist="${o.id}">${t("history")}</a>` : ""}</td></tr>`).join("") || emptyRow()}</tbody></table></div>`;
   if (canWrite) document.getElementById("add").onclick = orderForm;
+  view.querySelectorAll("[data-delorder]").forEach((a) => a.onclick = async () => {
+    if (!confirm(t("confirm_del"))) return;
+    try { await api("DELETE", `/api/orders/${a.dataset.delorder}`); toast(t("deleted")); renderView("orders"); await refreshLookups(); }
+    catch (e) { toast(e.message, "err"); }
+  });
   const wb = document.getElementById("wipe-orders");
   if (wb) wb.onclick = async () => {
     if (!confirm(t("confirm_wipe_orders"))) return;
@@ -783,9 +788,14 @@ async function renderInvoices(view) {
     <th>${t("paid")}</th><th>${t("balance")}</th><th>${t("status")}</th><th>${t("actions")}</th></tr></thead>
     <tbody>${(d.rows || []).map((i) => `<tr><td>${esc(i.invoice_no || i.id)}</td><td>${esc(i.customer_name || "")}</td>
       <td>${money(i.total_cents)}</td><td>${money(i.paid_cents)}</td><td>${money(i.balance_cents)}</td>
-      <td>${statusTag(i.status)}</td><td><a data-open="${i.id}">${t("manage")}</a></td></tr>`).join("") || emptyRow()}</tbody></table></div>`;
+      <td>${statusTag(i.status)}</td><td><a data-open="${i.id}">${t("manage")}</a>${canWrite ? ` · <a data-delinv="${i.id}">${t("del")}</a>` : ""}</td></tr>`).join("") || emptyRow()}</tbody></table></div>`;
   if (canWrite) document.getElementById("add").onclick = invoiceForm;
   view.querySelectorAll("[data-open]").forEach((a) => a.onclick = () => invoiceDetail(a.dataset.open));
+  view.querySelectorAll("[data-delinv]").forEach((a) => a.onclick = async () => {
+    if (!confirm(t("confirm_del"))) return;
+    try { await api("DELETE", `/api/invoices/${a.dataset.delinv}`); toast(t("deleted")); renderView("invoices"); }
+    catch (e) { toast(e.message, "err"); }
+  });
 }
 
 function invoiceForm() {
