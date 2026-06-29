@@ -408,12 +408,14 @@ async def invoice_pdf(invoice_id: int, user_id: int = Depends(auth.get_current_u
     inv = await q_invoices.get_detail(invoice_id)
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    from src.pdf import build_invoice_pdf
+    from src.pdf import build_invoice_pdf, invoice_filename
+    from urllib.parse import quote
     data = build_invoice_pdf(inv)
-    stamp = (inv.get("invoice_date") or time.strftime("%Y-%m-%d"))[:10]
-    fn = f"Invoice_{inv.get('invoice_no') or invoice_id}_{stamp}.pdf"
+    fn = invoice_filename(inv)
+    # RFC 5987: ASCII fallback + UTF-8 name so Arabic file names survive the header.
+    cd = f"attachment; filename=\"invoice.pdf\"; filename*=UTF-8''{quote(fn)}"
     return Response(content=data, media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="{fn}"'})
+                    headers={"Content-Disposition": cd})
 
 
 @app.post("/api/invoices/{invoice_id}/send-telegram")
@@ -423,13 +425,12 @@ async def invoice_send_telegram(invoice_id: int, request: Request,
     inv = await q_invoices.get_detail(invoice_id)
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
-    from src.pdf import build_invoice_pdf
+    from src.pdf import build_invoice_pdf, invoice_filename
     from src import notify
     import asyncio
     data = build_invoice_pdf(inv)
-    stamp = (inv.get("invoice_date") or time.strftime("%Y-%m-%d"))[:10]
-    fn = f"Invoice_{inv.get('invoice_no') or invoice_id}_{stamp}.pdf"
-    caption = f"Invoice {inv.get('invoice_no') or invoice_id}"
+    fn = invoice_filename(inv)
+    caption = fn[:-4]  # filename without .pdf
     ok, detail = await asyncio.get_event_loop().run_in_executor(
         None, notify.send_document, user_id, data, fn, caption)
     if not ok:

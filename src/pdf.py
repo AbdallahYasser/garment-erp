@@ -5,6 +5,7 @@ Arabic item names and the "Omar مختار" header render correctly (shaped + RT
 """
 import io
 import os
+import re
 from datetime import datetime
 
 import arabic_reshaper
@@ -49,6 +50,21 @@ def _fmt_date(d) -> str:
         return datetime.strptime(str(d)[:10], "%Y-%m-%d").strftime("%B %d, %Y")
     except ValueError:
         return str(d)
+
+
+def invoice_filename(inv: dict) -> str:
+    """File name = "<customer> - <item/items> - <date>.pdf" (sanitized)."""
+    cust = (inv.get("customer_name") or "customer").strip()
+    items = [(l.get("description") or "").strip()
+             for l in (inv.get("lines") or []) if (l.get("description") or "").strip()]
+    items_str = ", ".join(items) if items else "invoice"
+    date = (inv.get("invoice_date") or datetime.utcnow().strftime("%Y-%m-%d"))[:10]
+    name = f"{cust} - {items_str} - {date}"
+    name = re.sub(r'[\\/:*?"<>|\r\n\t]+', " ", name)   # drop filesystem-illegal chars
+    name = re.sub(r"\s+", " ", name).strip()
+    if len(name) > 90:
+        name = name[:90].rstrip()
+    return name + ".pdf"
 
 
 def build_invoice_pdf(inv: dict) -> bytes:
