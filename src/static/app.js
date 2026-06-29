@@ -42,6 +42,7 @@ const I18N = {
     tax: "الضريبة", subtotal: "الإجمالي الفرعي", total: "الإجمالي", description: "الوصف",
     line_total: "الإجمالي", add_line: "إضافة بند", record_payment: "تسجيل دفعة",
     export_pdf: "تصدير PDF", select_orders_hint: "اختر أمرًا أو أكثر لملء البنود تلقائيًا",
+    send_telegram: "إرسال على تيليجرام", sent_telegram: "تم الإرسال على تيليجرام ✓",
     amount: "المبلغ", kind: "النوع", advance: "عربون", progress: "أثناء الإنتاج", final: "نهائي",
     role: "الصلاحية", active: "نشط", language: "اللغة", created: "تاريخ الإنشاء",
     pending: "بانتظار الموافقة",
@@ -106,6 +107,7 @@ const I18N = {
     tax: "Tax", subtotal: "Subtotal", total: "Total", description: "Description",
     line_total: "Total", add_line: "Add line", record_payment: "Record payment",
     export_pdf: "Export PDF", select_orders_hint: "select one or more to auto-fill lines",
+    send_telegram: "Send to Telegram", sent_telegram: "Sent to Telegram ✓",
     amount: "Amount", kind: "Kind", advance: "Advance", progress: "Progress", final: "Final",
     role: "Role", active: "Active", language: "Language", created: "Created",
     pending: "Pending approval",
@@ -895,8 +897,15 @@ async function invoiceDetail(id) {
       <input id="pay-amt" type="number" step="any" placeholder="${t("amount")}">
       <select id="pay-kind"><option value="advance">${t("advance")}</option><option value="progress" selected>${t("progress")}</option><option value="final">${t("final")}</option></select>
       <button class="btn" id="pay-btn">${t("record_payment")}</button></div>` : ""}
-    <div class="modal-actions"><a class="btn secondary" href="/api/invoices/${id}/pdf" target="_blank">⬇ ${t("export_pdf")}</a><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
+    <div class="modal-actions"><button class="btn secondary" id="send-tg">📲 ${t("send_telegram")}</button><a class="btn secondary" href="/api/invoices/${id}/pdf" target="_blank">⬇ ${t("export_pdf")}</a><button class="btn secondary" id="m-close">${t("cancel")}</button></div>`, (root) => {
     root.querySelector("#m-close").onclick = () => { closeModal(); renderView("invoices"); };
+    const stg = root.querySelector("#send-tg");
+    if (stg) stg.onclick = async () => {
+      stg.disabled = true; const orig = stg.textContent; stg.textContent = "…";
+      try { await api("POST", `/api/invoices/${id}/send-telegram`, {}); toast(t("sent_telegram")); }
+      catch (e) { toast(e.message, "err"); }
+      stg.disabled = false; stg.textContent = orig;
+    };
     const pb = root.querySelector("#pay-btn");
     if (pb) pb.onclick = async () => {
       try { await api("POST", "/api/payments", { customer_id: inv.customer_id, invoice_id: inv.id, order_id: inv.order_id,

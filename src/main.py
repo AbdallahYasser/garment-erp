@@ -416,6 +416,34 @@ async def invoice_pdf(invoice_id: int, user_id: int = Depends(auth.get_current_u
                     headers={"Content-Disposition": f'attachment; filename="{fn}"'})
 
 
+@app.post("/api/invoices/{invoice_id}/send-telegram")
+async def invoice_send_telegram(invoice_id: int, request: Request,
+                                user_id: int = Depends(auth.get_current_user)):
+    """Send the invoice PDF to the current user's Telegram chat via the ERP bot."""
+    inv = await q_invoices.get_detail(invoice_id)
+    if not inv:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    from src.pdf import build_invoice_pdf
+    from src import notify
+    import asyncio
+    data = build_invoice_pdf(inv)
+    stamp = (inv.get("invoice_date") or time.strftime("%Y-%m-%d"))[:10]
+    fn = f"Invoice_{inv.get('invoice_no') or invoice_id}_{stamp}.pdf"
+    caption = f"Invoice {inv.get('invoice_no') or invoice_id}"
+    ok, detail = await asyncio.get_event_loop().run_in_executor(
+        None, notify.send_document, user_id, data, fn, caption)
+    if not ok:
+        low = (detail or "").lower()
+        if any(k in low for k in ("initiate", "not found", "blocked", "deactivated", "chat")):
+            detail = (f"Open @{config.BOT_USERNAME} in Telegram and press Start, "
+                      f"then try again.")
+        raise HTTPException(status_code=400, detail=detail or "Telegram send failed")
+    actor = await auth.actor_context(user_id, request)
+    await audit.log(actor=actor, entity="invoices", entity_id=invoice_id,
+                    action="export", summary="sent invoice PDF to Telegram")
+    return {"ok": True}
+
+
 @app.post("/api/invoices", status_code=201)
 async def invoice_create(request: Request,
                          user_id: int = Depends(auth.require_role("accountant"))):
