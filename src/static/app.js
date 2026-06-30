@@ -37,6 +37,9 @@ const I18N = {
     sort_by: "ترتيب", opt_all: "الكل", sort_newest: "الأحدث", sort_oldest: "الأقدم",
     sort_customer: "العميل (أ-ي)", sort_qty_high: "الكمية ↓", sort_qty_low: "الكمية ↑",
     sort_total_high: "الإجمالي ↓", sort_total_low: "الإجمالي ↑", sort_status: "الحالة",
+    sort_name: "الاسم (أ-ي)", sort_color: "اللون (أ-ي)", sort_rolls_high: "عدد الرولات ↓",
+    sort_rolls_low: "عدد الرولات ↑", sort_remaining_high: "المتبقي ↓", sort_remaining_low: "المتبقي ↑",
+    sort_paid_high: "المدفوع ↓", sort_balance_high: "المتبقي (المبلغ) ↓",
     cut_gate_hint: "في مرحلة القص: أدخل تكلفة القطعة وأضف سطر قص واحدًا على الأقل قبل الانتقال للمرحلة التالية.",
     delete_all_orders: "حذف كل الأوامر",
     confirm_wipe_orders: "سيتم حذف جميع الأوامر نهائيًا (مع تفاصيل القص والمراحل) وإرجاع رولات القماش للمخزون. هل تريد المتابعة؟",
@@ -105,6 +108,9 @@ const I18N = {
     sort_by: "Sort", opt_all: "All", sort_newest: "Newest", sort_oldest: "Oldest",
     sort_customer: "Customer (A-Z)", sort_qty_high: "Qty (high)", sort_qty_low: "Qty (low)",
     sort_total_high: "Total (high)", sort_total_low: "Total (low)", sort_status: "Status",
+    sort_name: "Name (A-Z)", sort_color: "Color (A-Z)", sort_rolls_high: "Rolls (high)",
+    sort_rolls_low: "Rolls (low)", sort_remaining_high: "Remaining (high)", sort_remaining_low: "Remaining (low)",
+    sort_paid_high: "Paid (high)", sort_balance_high: "Balance (high)",
     cut_gate_hint: "At Cutting: enter the unit cost and add at least one cut line before moving to the next stage.",
     delete_all_orders: "Delete all orders",
     confirm_wipe_orders: "This permanently deletes ALL orders (with their cuts and stages) and returns fabric rolls to stock. Continue?",
@@ -229,7 +235,21 @@ const ENTITIES = {
       { k: "owner", t: "owner", type: "select", options: [["factory", "factory_src"], ["customer", "customer_src"]] },
       { k: "customer_id", t: "customer", type: "select", lookup: "customers" },
       { k: "supplier_id", t: "supplier", type: "select", lookup: "suppliers" },
-    ] },
+    ],
+    controls: {
+      filters: [
+        { id: "owner", label: "owner", options: [["factory", "factory_src"], ["customer", "customer_src"]], get: (o) => o.owner },
+        { id: "customer_id", label: "customer", lookup: "customers", get: (o) => o.customer_id },
+      ],
+      sorts: [
+        { v: "newest", label: "sort_newest", cmp: (a, b) => b.id - a.id },
+        { v: "rolls_high", label: "sort_rolls_high", cmp: (a, b) => (b.rolls_count || 0) - (a.rolls_count || 0) },
+        { v: "rolls_low", label: "sort_rolls_low", cmp: (a, b) => (a.rolls_count || 0) - (b.rolls_count || 0) },
+        { v: "rem_high", label: "sort_remaining_high", cmp: (a, b) => (b.remaining_m_milli || 0) - (a.remaining_m_milli || 0) },
+        { v: "rem_low", label: "sort_remaining_low", cmp: (a, b) => (a.remaining_m_milli || 0) - (b.remaining_m_milli || 0) },
+        { v: "color", label: "sort_color", cmp: (a, b) => String(a.color || "").localeCompare(String(b.color || "")) },
+      ],
+    } },
   inventory_movements: { roles: ["production"], label: "inventory_movements", search: true,
     columns: ["item_type", "item_name", "movement_type", "qty_milli:milli", "owner"],
     fields: [
@@ -249,7 +269,18 @@ const ENTITIES = {
       { k: "customer_id", t: "customer", type: "select", lookup: "customers" },
       { k: "status", t: "status", type: "select", options: [["draft", "draft"], ["approved", "approved"], ["archived", "archived"]] },
       { k: "notes", t: "notes", type: "textarea", full: true },
-    ] },
+    ],
+    controls: {
+      filters: [
+        { id: "status", label: "status", options: [["draft", "draft"], ["approved", "approved"], ["archived", "archived"]], get: (o) => o.status },
+        { id: "customer_id", label: "customer", lookup: "customers", get: (o) => o.customer_id },
+      ],
+      sorts: [
+        { v: "newest", label: "sort_newest", cmp: (a, b) => b.id - a.id },
+        { v: "name", label: "sort_name", cmp: (a, b) => String(a.name || "").localeCompare(String(b.name || "")) },
+        { v: "status", label: "sort_status", cmp: (a, b) => String(a.status || "").localeCompare(String(b.status || "")) },
+      ],
+    } },
 };
 
 // ---------------------------------------------------------------------------
@@ -315,6 +346,44 @@ async function renderView(id) {
   } catch (e) { view.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
 }
 
+// Reusable client-side list controls: search + filters + sort.
+// opts = { search, searchCols:[], filters:[{id,label,options|lookup,get}], sorts:[{v,label,cmp}] }
+function controlsBarHtml(opts) {
+  const parts = [];
+  if (opts.search) parts.push(`<input data-lc-q placeholder="${t("search")}" style="min-width:150px">`);
+  (opts.filters || []).forEach((f) => {
+    let o = `<option value="">${t(f.label)}: ${t("opt_all")}</option>`;
+    o += f.lookup
+      ? (state.lookups[f.lookup] || []).map((x) => `<option value="${x.id}">${esc(x.name || x.code || x.id)}</option>`).join("")
+      : f.options.map(([v, lk]) => `<option value="${v}">${t(lk)}</option>`).join("");
+    parts.push(`<select data-lc-filter="${f.id}">${o}</select>`);
+  });
+  if (opts.sorts) parts.push(`<select data-lc-sort>${opts.sorts.map((s, i) => `<option value="${s.v}">${i === 0 ? t("sort_by") + ": " : ""}${t(s.label)}</option>`).join("")}</select>`);
+  parts.push(`<span class="muted" data-lc-count></span>`);
+  return `<div class="toolbar" data-lc-bar style="margin-bottom:12px;flex-wrap:wrap">${parts.join("")}</div>`;
+}
+function wireControls(bar, all, opts, render) {
+  const apply = () => {
+    let rows = all.slice();
+    const qEl = bar.querySelector("[data-lc-q]");
+    const q = qEl ? qEl.value.trim().toLowerCase() : "";
+    if (q && opts.searchCols) rows = rows.filter((o) => opts.searchCols.some((c) => String(o[c] ?? "").toLowerCase().includes(q)));
+    (opts.filters || []).forEach((f) => {
+      const v = bar.querySelector(`[data-lc-filter="${f.id}"]`).value;
+      if (v) rows = rows.filter((o) => String(f.get(o)) === String(v));
+    });
+    if (opts.sorts) {
+      const sv = bar.querySelector("[data-lc-sort]").value;
+      (opts.sorts.find((x) => x.v === sv) || opts.sorts[0]) && rows.sort((opts.sorts.find((x) => x.v === sv) || opts.sorts[0]).cmp);
+    }
+    const cnt = bar.querySelector("[data-lc-count]"); if (cnt) cnt.textContent = `${rows.length} / ${all.length}`;
+    render(rows);
+  };
+  const qEl = bar.querySelector("[data-lc-q]"); if (qEl) qEl.oninput = debounce(apply, 150);
+  bar.querySelectorAll("[data-lc-filter],[data-lc-sort]").forEach((el) => el.onchange = apply);
+  apply();
+}
+
 function colHeader(cfg, spec) {
   const k = spec.split(":")[0];
   const f = cfg.fields.find((x) => x.k === k);
@@ -332,31 +401,27 @@ function cellValue(row, spec) {
 async function renderEntity(view, id) {
   const cfg = ENTITIES[id];
   const canWrite = ROLE_OK(...cfg.roles);
-  const data = await api("GET", `/api/${id}?limit=500`);
-  const rows = data.rows || [];
+  const data = await api("GET", `/api/${id}?limit=1000`);
+  const all = data.rows || [];
   const head = cfg.columns.map((c) => `<th>${colHeader(cfg, c)}</th>`).join("");
+  const opts = {
+    search: !!cfg.search,
+    searchCols: cfg.columns.map((c) => c.split(":")[0]),
+    filters: (cfg.controls && cfg.controls.filters) || [],
+    sorts: (cfg.controls && cfg.controls.sorts) || null,
+  };
   view.innerHTML = `
-    <div class="section-head">
-      <h2>${t(id)}</h2>
-      <div class="toolbar">
-        ${cfg.search ? `<input id="q" placeholder="${t("search")}">` : ""}
-        ${canWrite ? `<button class="btn" id="add">+ ${t("add")}</button>` : ""}
-      </div>
-    </div>
-    <div class="card"><table><thead><tr>${head}<th>${t("actions")}</th></tr></thead>
-    <tbody id="tb">${rowsHtml(id, rows, cfg)}</tbody></table>
-    ${rows.length ? "" : `<p class="muted" style="padding:14px">${t("none")}</p>`}</div>`;
+    <div class="section-head"><h2>${t(id)}</h2>
+      <div class="toolbar">${canWrite ? `<button class="btn" id="add">+ ${t("add")}</button>` : ""}</div></div>
+    <div class="card">${controlsBarHtml(opts)}
+      <table><thead><tr>${head}<th>${t("actions")}</th></tr></thead>
+      <tbody id="tb"></tbody></table></div>`;
   if (canWrite) document.getElementById("add").onclick = () =>
     (id === "fabric_rolls" ? fabricRollForm() : entityForm(id, null));
-  if (cfg.search) {
-    const q = document.getElementById("q");
-    q.oninput = debounce(async () => {
-      const d = await api("GET", `/api/${id}?limit=500&q=${encodeURIComponent(q.value)}`);
-      document.getElementById("tb").innerHTML = rowsHtml(id, d.rows || [], cfg);
-      bindRowActions(id, cfg);
-    }, 250);
-  }
-  bindRowActions(id, cfg);
+  wireControls(view.querySelector("[data-lc-bar]"), all, opts, (rows) => {
+    document.getElementById("tb").innerHTML = rows.length ? rowsHtml(id, rows, cfg) : emptyRow();
+    bindRowActions(id, cfg);
+  });
 }
 
 function rowsHtml(id, rows, cfg) {
@@ -832,20 +897,40 @@ function cutForm(order, cut) {
 // ---------------------------------------------------------------------------
 async function renderInvoices(view) {
   const d = await api("GET", "/api/invoices");
+  const all = d.rows || [];
   const canWrite = ROLE_OK("accountant");
+  const opts = {
+    search: true, searchCols: ["invoice_no", "customer_name"],
+    filters: [
+      { id: "status", label: "status", options: [["unpaid", "unpaid"], ["partial", "partial"], ["paid", "paid"]], get: (o) => o.status },
+      { id: "customer_id", label: "customer", lookup: "customers", get: (o) => o.customer_id },
+    ],
+    sorts: [
+      { v: "newest", label: "sort_newest", cmp: (a, b) => b.id - a.id },
+      { v: "total_high", label: "sort_total_high", cmp: (a, b) => (b.total_cents || 0) - (a.total_cents || 0) },
+      { v: "total_low", label: "sort_total_low", cmp: (a, b) => (a.total_cents || 0) - (b.total_cents || 0) },
+      { v: "paid_high", label: "sort_paid_high", cmp: (a, b) => (b.paid_cents || 0) - (a.paid_cents || 0) },
+      { v: "balance_high", label: "sort_balance_high", cmp: (a, b) => (b.balance_cents || 0) - (a.balance_cents || 0) },
+    ],
+  };
   view.innerHTML = `<div class="section-head"><h2>${t("invoices")}</h2>
     ${canWrite ? `<button class="btn" id="add">+ ${t("add")}</button>` : ""}</div>
-    <div class="card"><table><thead><tr><th>${t("invoice_no")}</th><th>${t("customer")}</th><th>${t("total")}</th>
+    <div class="card">${controlsBarHtml(opts)}
+    <table><thead><tr><th>${t("invoice_no")}</th><th>${t("customer")}</th><th>${t("total")}</th>
     <th>${t("paid")}</th><th>${t("balance")}</th><th>${t("status")}</th><th>${t("actions")}</th></tr></thead>
-    <tbody>${(d.rows || []).map((i) => `<tr><td>${esc(i.invoice_no || i.id)}</td><td>${esc(i.customer_name || "")}</td>
-      <td>${money(i.total_cents)}</td><td>${money(i.paid_cents)}</td><td>${money(i.balance_cents)}</td>
-      <td>${statusTag(i.status)}</td><td><a data-open="${i.id}">${t("manage")}</a>${canWrite ? ` · <a data-delinv="${i.id}">${t("del")}</a>` : ""}</td></tr>`).join("") || emptyRow()}</tbody></table></div>`;
+    <tbody id="inv-tb"></tbody></table></div>`;
   if (canWrite) document.getElementById("add").onclick = invoiceForm;
-  view.querySelectorAll("[data-open]").forEach((a) => a.onclick = () => invoiceDetail(a.dataset.open));
-  view.querySelectorAll("[data-delinv]").forEach((a) => a.onclick = async () => {
-    if (!confirm(t("confirm_del"))) return;
-    try { await api("DELETE", `/api/invoices/${a.dataset.delinv}`); toast(t("deleted")); renderView("invoices"); }
-    catch (e) { toast(e.message, "err"); }
+  const rowHtml = (i) => `<tr><td>${esc(i.invoice_no || i.id)}</td><td>${esc(i.customer_name || "")}</td>
+    <td>${money(i.total_cents)}</td><td>${money(i.paid_cents)}</td><td>${money(i.balance_cents)}</td>
+    <td>${statusTag(i.status)}</td><td><a data-open="${i.id}">${t("manage")}</a>${canWrite ? ` · <a data-delinv="${i.id}">${t("del")}</a>` : ""}</td></tr>`;
+  wireControls(view.querySelector("[data-lc-bar]"), all, opts, (rows) => {
+    view.querySelector("#inv-tb").innerHTML = rows.map(rowHtml).join("") || emptyRow();
+    view.querySelectorAll("[data-open]").forEach((a) => a.onclick = () => invoiceDetail(a.dataset.open));
+    view.querySelectorAll("[data-delinv]").forEach((a) => a.onclick = async () => {
+      if (!confirm(t("confirm_del"))) return;
+      try { await api("DELETE", `/api/invoices/${a.dataset.delinv}`); toast(t("deleted")); renderView("invoices"); }
+      catch (e) { toast(e.message, "err"); }
+    });
   });
 }
 
