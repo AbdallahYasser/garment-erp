@@ -34,6 +34,9 @@ const I18N = {
     remaining_after_cut: "المتبقي من الرول بعد القص", rolls: "رول",
     remaining_hint: "يجب أن يكون المتبقي أقل من عدد الرولات:",
     total_units: "إجمالي القطع",
+    sort_by: "ترتيب", opt_all: "الكل", sort_newest: "الأحدث", sort_oldest: "الأقدم",
+    sort_customer: "العميل (أ-ي)", sort_qty_high: "الكمية ↓", sort_qty_low: "الكمية ↑",
+    sort_total_high: "الإجمالي ↓", sort_total_low: "الإجمالي ↑", sort_status: "الحالة",
     cut_gate_hint: "في مرحلة القص: أدخل تكلفة القطعة وأضف سطر قص واحدًا على الأقل قبل الانتقال للمرحلة التالية.",
     delete_all_orders: "حذف كل الأوامر",
     confirm_wipe_orders: "سيتم حذف جميع الأوامر نهائيًا (مع تفاصيل القص والمراحل) وإرجاع رولات القماش للمخزون. هل تريد المتابعة؟",
@@ -99,6 +102,9 @@ const I18N = {
     remaining_after_cut: "Roll remaining after cut", rolls: "rolls",
     remaining_hint: "Remaining must be less than rolls used:",
     total_units: "Total units",
+    sort_by: "Sort", opt_all: "All", sort_newest: "Newest", sort_oldest: "Oldest",
+    sort_customer: "Customer (A-Z)", sort_qty_high: "Qty (high)", sort_qty_low: "Qty (low)",
+    sort_total_high: "Total (high)", sort_total_low: "Total (low)", sort_status: "Status",
     cut_gate_hint: "At Cutting: enter the unit cost and add at least one cut line before moving to the next stage.",
     delete_all_orders: "Delete all orders",
     confirm_wipe_orders: "This permanently deletes ALL orders (with their cuts and stages) and returns fabric rolls to stock. Continue?",
@@ -637,31 +643,61 @@ async function manageSample(sampleId) {
 // Orders
 // ---------------------------------------------------------------------------
 const STAGES = ["new", "prep", "cutting", "printing", "sewing", "finishing", "packing", "ready", "delivered"];
+const ALL_STAGES = ["new", "prep", "cutting", "printing", "sewing", "finishing", "packing", "ready", "delivered", "cancelled"];
 async function renderOrders(view) {
   const d = await api("GET", "/api/orders");
+  const all = d.rows || [];
   const canWrite = ROLE_OK("production", "sales");
+  const customers = state.lookups.customers || [];
   view.innerHTML = `<div class="section-head"><h2>${t("orders")}</h2>
     <div class="toolbar">${state.me.role === "admin" ? `<button class="btn danger small" id="wipe-orders">🗑 ${t("delete_all_orders")}</button>` : ""}
     ${canWrite ? `<button class="btn" id="add">+ ${t("add")}</button>` : ""}</div></div>
-    <div class="card"><table><thead><tr><th>${t("customer")}</th><th>${t("sample")}</th>
-    <th>${t("quantity")}</th><th>${t("est_total")}</th><th>${t("status")}</th><th>${t("actions")}</th></tr></thead>
-    <tbody>${(d.rows || []).map((o) => `<tr><td>${esc(o.customer_name || "")}</td>
-      <td>${esc(o.sample_name || "")}</td><td>${esc(o.quantity)}</td><td>${money(o.est_total_cents)}</td>
-      <td>${statusTag(o.status)}</td><td><a data-open="${o.id}">${t("manage")}</a>${canWrite ? ` · <a data-delorder="${o.id}">${t("del")}</a>` : ""}${state.me.role === "admin" ? ` · <a data-hist="${o.id}">${t("history")}</a>` : ""}</td></tr>`).join("") || emptyRow()}</tbody></table></div>`;
+    <div class="card">
+      <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap">
+        <select id="f-status"><option value="">${t("status")}: ${t("opt_all")}</option>${ALL_STAGES.map((s) => `<option value="${s}">${t(s)}</option>`).join("")}</select>
+        <select id="f-customer"><option value="">${t("customer")}: ${t("opt_all")}</option>${customers.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+        <select id="f-sort">${[["newest", "sort_newest"], ["oldest", "sort_oldest"], ["customer", "sort_customer"], ["qty_high", "sort_qty_high"], ["qty_low", "sort_qty_low"], ["total_high", "sort_total_high"], ["total_low", "sort_total_low"], ["status", "sort_status"]].map(([v, k], i) => `<option value="${v}">${i === 0 ? t("sort_by") + ": " : ""}${t(k)}</option>`).join("")}</select>
+        <span class="muted" id="orders-count"></span>
+      </div>
+      <table><thead><tr><th>${t("customer")}</th><th>${t("sample")}</th><th>${t("quantity")}</th><th>${t("est_total")}</th><th>${t("status")}</th><th>${t("actions")}</th></tr></thead>
+      <tbody id="orders-tb"></tbody></table>
+    </div>`;
+  const rowHtml = (o) => `<tr><td>${esc(o.customer_name || "")}</td><td>${esc(o.sample_name || "")}</td>
+    <td>${esc(o.quantity)}</td><td>${money(o.est_total_cents)}</td><td>${statusTag(o.status)}</td>
+    <td><a data-open="${o.id}">${t("manage")}</a>${canWrite ? ` · <a data-delorder="${o.id}">${t("del")}</a>` : ""}${state.me.role === "admin" ? ` · <a data-hist="${o.id}">${t("history")}</a>` : ""}</td></tr>`;
+  const sIdx = (s) => { const i = ALL_STAGES.indexOf(s); return i < 0 ? 99 : i; };
+  const CMP = {
+    newest: (a, b) => b.id - a.id, oldest: (a, b) => a.id - b.id,
+    customer: (a, b) => String(a.customer_name || "").localeCompare(String(b.customer_name || "")),
+    qty_high: (a, b) => (b.quantity || 0) - (a.quantity || 0), qty_low: (a, b) => (a.quantity || 0) - (b.quantity || 0),
+    total_high: (a, b) => (b.est_total_cents || 0) - (a.est_total_cents || 0), total_low: (a, b) => (a.est_total_cents || 0) - (b.est_total_cents || 0),
+    status: (a, b) => sIdx(a.status) - sIdx(b.status),
+  };
+  const bindRows = () => {
+    view.querySelectorAll("[data-open]").forEach((a) => a.onclick = () => orderDetail(a.dataset.open));
+    view.querySelectorAll("[data-hist]").forEach((a) => a.onclick = () => showHistory("orders", a.dataset.hist));
+    view.querySelectorAll("[data-delorder]").forEach((a) => a.onclick = async () => {
+      if (!confirm(t("confirm_del"))) return;
+      try { await api("DELETE", `/api/orders/${a.dataset.delorder}`); toast(t("deleted")); renderView("orders"); await refreshLookups(); }
+      catch (e) { toast(e.message, "err"); }
+    });
+  };
+  const apply = () => {
+    const st = view.querySelector("#f-status").value, cu = view.querySelector("#f-customer").value, sort = view.querySelector("#f-sort").value;
+    const rows = all.filter((o) => (!st || o.status === st) && (!cu || String(o.customer_id) === String(cu))).sort(CMP[sort] || CMP.newest);
+    view.querySelector("#orders-tb").innerHTML = rows.map(rowHtml).join("") || emptyRow();
+    view.querySelector("#orders-count").textContent = `${rows.length} / ${all.length}`;
+    bindRows();
+  };
+  ["f-status", "f-customer", "f-sort"].forEach((id) => view.querySelector("#" + id).onchange = apply);
   if (canWrite) document.getElementById("add").onclick = orderForm;
-  view.querySelectorAll("[data-delorder]").forEach((a) => a.onclick = async () => {
-    if (!confirm(t("confirm_del"))) return;
-    try { await api("DELETE", `/api/orders/${a.dataset.delorder}`); toast(t("deleted")); renderView("orders"); await refreshLookups(); }
-    catch (e) { toast(e.message, "err"); }
-  });
   const wb = document.getElementById("wipe-orders");
   if (wb) wb.onclick = async () => {
     if (!confirm(t("confirm_wipe_orders"))) return;
     try { await api("POST", "/api/orders/wipe-all", { confirmation: "DELETE" }); toast(t("deleted")); renderView("orders"); await refreshLookups(); }
     catch (e) { toast(e.message, "err"); }
   };
-  view.querySelectorAll("[data-open]").forEach((a) => a.onclick = () => orderDetail(a.dataset.open));
-  view.querySelectorAll("[data-hist]").forEach((a) => a.onclick = () => showHistory("orders", a.dataset.hist));
+  apply();
 }
 
 async function orderForm() {
