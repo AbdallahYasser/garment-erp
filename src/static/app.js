@@ -317,7 +317,7 @@ function renderNav() {
   }
 }
 
-function navigate(id) { currentView = id; try { localStorage.setItem("erp_view", id); } catch (e) {} renderNav(); document.getElementById("crumb").textContent = t(id); renderView(id); toggleNav(false); }
+function navigate(id) { currentView = id; delete listState[id]; try { localStorage.setItem("erp_view", id); } catch (e) {} renderNav(); document.getElementById("crumb").textContent = t(id); renderView(id); toggleNav(false); }
 
 // Off-canvas sidebar drawer (mobile). force=true opens, false closes, undefined toggles.
 function toggleNav(force) {
@@ -362,24 +362,38 @@ function controlsBarHtml(opts) {
   parts.push(`<span class="muted" data-lc-count></span>`);
   return `<div class="toolbar" data-lc-bar style="margin-bottom:12px;flex-wrap:wrap">${parts.join("")}</div>`;
 }
-function wireControls(bar, all, opts, render) {
+// Per-list search/filter/sort selections, so incidental re-renders (popup
+// close, save, delete) keep them. Cleared on explicit sidebar navigation.
+const listState = {};
+function wireControls(bar, all, opts, render, stateKey) {
+  const st = stateKey ? (listState[stateKey] = listState[stateKey] || {}) : {};
+  const qEl = bar.querySelector("[data-lc-q]");
+  const sortEl = bar.querySelector("[data-lc-sort]");
+  // Restore saved selections (stale values simply fall back to "all"/default).
+  if (qEl && st.q != null) qEl.value = st.q;
+  (opts.filters || []).forEach((f) => { const el = bar.querySelector(`[data-lc-filter="${f.id}"]`); if (el && st["f_" + f.id] != null) el.value = st["f_" + f.id]; });
+  if (sortEl && st.sort != null) sortEl.value = st.sort;
+
   const apply = () => {
+    if (qEl) st.q = qEl.value;
+    (opts.filters || []).forEach((f) => { st["f_" + f.id] = bar.querySelector(`[data-lc-filter="${f.id}"]`).value; });
+    if (sortEl) st.sort = sortEl.value;
+
     let rows = all.slice();
-    const qEl = bar.querySelector("[data-lc-q]");
     const q = qEl ? qEl.value.trim().toLowerCase() : "";
     if (q && opts.searchCols) rows = rows.filter((o) => opts.searchCols.some((c) => String(o[c] ?? "").toLowerCase().includes(q)));
     (opts.filters || []).forEach((f) => {
       const v = bar.querySelector(`[data-lc-filter="${f.id}"]`).value;
       if (v) rows = rows.filter((o) => String(f.get(o)) === String(v));
     });
-    if (opts.sorts) {
-      const sv = bar.querySelector("[data-lc-sort]").value;
-      (opts.sorts.find((x) => x.v === sv) || opts.sorts[0]) && rows.sort((opts.sorts.find((x) => x.v === sv) || opts.sorts[0]).cmp);
+    if (sortEl) {
+      const s = opts.sorts.find((x) => x.v === sortEl.value) || opts.sorts[0];
+      if (s) rows.sort(s.cmp);
     }
     const cnt = bar.querySelector("[data-lc-count]"); if (cnt) cnt.textContent = `${rows.length} / ${all.length}`;
     render(rows);
   };
-  const qEl = bar.querySelector("[data-lc-q]"); if (qEl) qEl.oninput = debounce(apply, 150);
+  if (qEl) qEl.oninput = debounce(apply, 150);
   bar.querySelectorAll("[data-lc-filter],[data-lc-sort]").forEach((el) => el.onchange = apply);
   apply();
 }
@@ -421,7 +435,7 @@ async function renderEntity(view, id) {
   wireControls(view.querySelector("[data-lc-bar]"), all, opts, (rows) => {
     document.getElementById("tb").innerHTML = rows.length ? rowsHtml(id, rows, cfg) : emptyRow();
     bindRowActions(id, cfg);
-  });
+  }, id);
 }
 
 function rowsHtml(id, rows, cfg) {
@@ -713,48 +727,33 @@ async function renderOrders(view) {
   const d = await api("GET", "/api/orders");
   const all = d.rows || [];
   const canWrite = ROLE_OK("production", "sales");
-  const customers = state.lookups.customers || [];
+  const sIdx = (s) => { const i = ALL_STAGES.indexOf(s); return i < 0 ? 99 : i; };
+  const opts = {
+    filters: [
+      { id: "status", label: "status", options: ALL_STAGES.map((s) => [s, s]), get: (o) => o.status },
+      { id: "customer_id", label: "customer", lookup: "customers", get: (o) => o.customer_id },
+    ],
+    sorts: [
+      { v: "newest", label: "sort_newest", cmp: (a, b) => b.id - a.id },
+      { v: "oldest", label: "sort_oldest", cmp: (a, b) => a.id - b.id },
+      { v: "customer", label: "sort_customer", cmp: (a, b) => String(a.customer_name || "").localeCompare(String(b.customer_name || "")) },
+      { v: "qty_high", label: "sort_qty_high", cmp: (a, b) => (b.quantity || 0) - (a.quantity || 0) },
+      { v: "qty_low", label: "sort_qty_low", cmp: (a, b) => (a.quantity || 0) - (b.quantity || 0) },
+      { v: "total_high", label: "sort_total_high", cmp: (a, b) => (b.est_total_cents || 0) - (a.est_total_cents || 0) },
+      { v: "total_low", label: "sort_total_low", cmp: (a, b) => (a.est_total_cents || 0) - (b.est_total_cents || 0) },
+      { v: "status", label: "sort_status", cmp: (a, b) => sIdx(a.status) - sIdx(b.status) },
+    ],
+  };
   view.innerHTML = `<div class="section-head"><h2>${t("orders")}</h2>
     <div class="toolbar">${state.me.role === "admin" ? `<button class="btn danger small" id="wipe-orders">🗑 ${t("delete_all_orders")}</button>` : ""}
     ${canWrite ? `<button class="btn" id="add">+ ${t("add")}</button>` : ""}</div></div>
-    <div class="card">
-      <div class="toolbar" style="margin-bottom:12px;flex-wrap:wrap">
-        <select id="f-status"><option value="">${t("status")}: ${t("opt_all")}</option>${ALL_STAGES.map((s) => `<option value="${s}">${t(s)}</option>`).join("")}</select>
-        <select id="f-customer"><option value="">${t("customer")}: ${t("opt_all")}</option>${customers.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
-        <select id="f-sort">${[["newest", "sort_newest"], ["oldest", "sort_oldest"], ["customer", "sort_customer"], ["qty_high", "sort_qty_high"], ["qty_low", "sort_qty_low"], ["total_high", "sort_total_high"], ["total_low", "sort_total_low"], ["status", "sort_status"]].map(([v, k], i) => `<option value="${v}">${i === 0 ? t("sort_by") + ": " : ""}${t(k)}</option>`).join("")}</select>
-        <span class="muted" id="orders-count"></span>
-      </div>
+    <div class="card">${controlsBarHtml(opts)}
       <table><thead><tr><th>${t("customer")}</th><th>${t("sample")}</th><th>${t("quantity")}</th><th>${t("est_total")}</th><th>${t("status")}</th><th>${t("actions")}</th></tr></thead>
       <tbody id="orders-tb"></tbody></table>
     </div>`;
   const rowHtml = (o) => `<tr><td>${esc(o.customer_name || "")}</td><td>${esc(o.sample_name || "")}</td>
     <td>${esc(o.quantity)}</td><td>${money(o.est_total_cents)}</td><td>${statusTag(o.status)}</td>
     <td><a data-open="${o.id}">${t("manage")}</a>${canWrite ? ` · <a data-delorder="${o.id}">${t("del")}</a>` : ""}${state.me.role === "admin" ? ` · <a data-hist="${o.id}">${t("history")}</a>` : ""}</td></tr>`;
-  const sIdx = (s) => { const i = ALL_STAGES.indexOf(s); return i < 0 ? 99 : i; };
-  const CMP = {
-    newest: (a, b) => b.id - a.id, oldest: (a, b) => a.id - b.id,
-    customer: (a, b) => String(a.customer_name || "").localeCompare(String(b.customer_name || "")),
-    qty_high: (a, b) => (b.quantity || 0) - (a.quantity || 0), qty_low: (a, b) => (a.quantity || 0) - (b.quantity || 0),
-    total_high: (a, b) => (b.est_total_cents || 0) - (a.est_total_cents || 0), total_low: (a, b) => (a.est_total_cents || 0) - (b.est_total_cents || 0),
-    status: (a, b) => sIdx(a.status) - sIdx(b.status),
-  };
-  const bindRows = () => {
-    view.querySelectorAll("[data-open]").forEach((a) => a.onclick = () => orderDetail(a.dataset.open));
-    view.querySelectorAll("[data-hist]").forEach((a) => a.onclick = () => showHistory("orders", a.dataset.hist));
-    view.querySelectorAll("[data-delorder]").forEach((a) => a.onclick = async () => {
-      if (!confirm(t("confirm_del"))) return;
-      try { await api("DELETE", `/api/orders/${a.dataset.delorder}`); toast(t("deleted")); renderView("orders"); await refreshLookups(); }
-      catch (e) { toast(e.message, "err"); }
-    });
-  };
-  const apply = () => {
-    const st = view.querySelector("#f-status").value, cu = view.querySelector("#f-customer").value, sort = view.querySelector("#f-sort").value;
-    const rows = all.filter((o) => (!st || o.status === st) && (!cu || String(o.customer_id) === String(cu))).sort(CMP[sort] || CMP.newest);
-    view.querySelector("#orders-tb").innerHTML = rows.map(rowHtml).join("") || emptyRow();
-    view.querySelector("#orders-count").textContent = `${rows.length} / ${all.length}`;
-    bindRows();
-  };
-  ["f-status", "f-customer", "f-sort"].forEach((id) => view.querySelector("#" + id).onchange = apply);
   if (canWrite) document.getElementById("add").onclick = orderForm;
   const wb = document.getElementById("wipe-orders");
   if (wb) wb.onclick = async () => {
@@ -762,7 +761,16 @@ async function renderOrders(view) {
     try { await api("POST", "/api/orders/wipe-all", { confirmation: "DELETE" }); toast(t("deleted")); renderView("orders"); await refreshLookups(); }
     catch (e) { toast(e.message, "err"); }
   };
-  apply();
+  wireControls(view.querySelector("[data-lc-bar]"), all, opts, (rows) => {
+    view.querySelector("#orders-tb").innerHTML = rows.map(rowHtml).join("") || emptyRow();
+    view.querySelectorAll("[data-open]").forEach((a) => a.onclick = () => orderDetail(a.dataset.open));
+    view.querySelectorAll("[data-hist]").forEach((a) => a.onclick = () => showHistory("orders", a.dataset.hist));
+    view.querySelectorAll("[data-delorder]").forEach((a) => a.onclick = async () => {
+      if (!confirm(t("confirm_del"))) return;
+      try { await api("DELETE", `/api/orders/${a.dataset.delorder}`); toast(t("deleted")); renderView("orders"); await refreshLookups(); }
+      catch (e) { toast(e.message, "err"); }
+    });
+  }, "orders");
 }
 
 async function orderForm() {
@@ -931,7 +939,7 @@ async function renderInvoices(view) {
       try { await api("DELETE", `/api/invoices/${a.dataset.delinv}`); toast(t("deleted")); renderView("invoices"); }
       catch (e) { toast(e.message, "err"); }
     });
-  });
+  }, "invoices");
 }
 
 // Merge selected orders into invoice lines: same piece name + same unit price
