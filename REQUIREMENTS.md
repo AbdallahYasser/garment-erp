@@ -244,6 +244,7 @@ In roughly chronological order:
     - order/invoice detail changes reflect in the list on close (Cancel **and** click‑outside);
     - refresh (F5) keeps the current page instead of the Dashboard.
 17. **Sort & select (filter)** — added instant search/filter/sort to Orders, then Fabric Rolls, Samples, Invoices; filter/sort selections persist across incidental re‑renders and reset on explicit navigation.
+18. **`MODULE_GUIDE.md` added** — the authoritative developer guide for adding a new module (registry entity vs custom module paths, conventions, pitfalls, and the review checklist). All new modules must follow it and pass its Definition‑of‑Done review.
 
 ---
 
