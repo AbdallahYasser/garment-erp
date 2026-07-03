@@ -421,12 +421,9 @@ async def apply_migrations() -> None:
             ) as cur:
                 if await cur.fetchone():
                     continue
-            try:
-                await db.execute(stmt)
-                await db.execute(
-                    "INSERT INTO schema_migrations (name) VALUES (?)", (name,)
-                )
-                logger.info("Applied migration: %s", name)
-            except Exception as e:
-                logger.warning("Migration %s skipped or failed: %s", name, e)
+            await db.execute(stmt)
+            await db.execute(
+                "INSERT INTO schema_migrations (name) VALUES (?)", (name,)
+            )
+            logger.info("Applied migration: %s", name)
         await db.commit()

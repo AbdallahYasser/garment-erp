@@ -1,9 +1,11 @@
 """Role gating — a sales user cannot touch finance, etc."""
+from tests.conftest import make_test_user
 
 
 def _as_sales(client):
     from src.main import auth
-    client.cookies.set("session", auth.create_session_token(222))  # default role: sales
+    make_test_user(222, "sales")  # must exist + be active for auth check to pass
+    client.cookies.set("session", auth.create_session_token(222))
 
 
 def test_sales_can_create_customer(client):

@@ -8,7 +8,7 @@ import os
 import aiosqlite
 
 from src import config
-from src.db import write_db_uri
+from src.db import write_conn
 
 # Order matters only loosely (FKs are disabled during the wipe).
 WIPE_TABLES = [
@@ -24,7 +24,7 @@ WIPE_TABLES = [
 
 async def reset_all_data() -> dict:
     counts = {}
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         await db.execute("PRAGMA foreign_keys=OFF")
         for tbl in WIPE_TABLES:
             try:

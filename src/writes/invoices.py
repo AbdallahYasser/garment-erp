@@ -3,7 +3,7 @@ from typing import Optional
 
 import aiosqlite
 
-from src.db import write_db_uri
+from src.db import write_conn
 from src.writes import audit
 
 
@@ -53,7 +53,7 @@ async def create_invoice(
 ) -> int:
     if not customer_id:
         raise ValueError("customer_id is required")
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             """
@@ -86,7 +86,7 @@ async def create_invoice(
 
 async def delete_invoice(actor: dict, invoice_id: int) -> bool:
     """Soft-delete an invoice and its lines. Payments are kept (money received)."""
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM invoices WHERE id = ? AND deleted_at IS NULL",
@@ -107,6 +107,6 @@ async def delete_invoice(actor: dict, invoice_id: int) -> bool:
 
 
 async def recompute(invoice_id: int) -> None:
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         await _recompute_totals(db, invoice_id)
         await db.commit()

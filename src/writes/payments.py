@@ -3,7 +3,7 @@ from typing import Optional
 
 import aiosqlite
 
-from src.db import write_db_uri
+from src.db import write_conn
 from src.writes import audit
 from src.writes.invoices import _recompute_status
 
@@ -25,7 +25,7 @@ async def record_payment(
     amount_cents = int(amount_cents or 0)
     if amount_cents <= 0:
         raise ValueError("amount must be positive")
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             """
@@ -47,7 +47,7 @@ async def record_payment(
 
 
 async def delete_payment(actor: dict, payment_id: int) -> bool:
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM payments WHERE id = ? AND deleted_at IS NULL",

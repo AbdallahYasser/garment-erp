@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 import aiosqlite
 
-from src.db import write_db_uri
+from src.db import write_conn
 from src.writes import audit
 
 
@@ -50,7 +50,7 @@ class Table:
 
     # ---- reads ----------------------------------------------------------
     async def get(self, row_id: int) -> Optional[dict]:
-        async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        async with write_conn() as db:
             return await self._snapshot(db, row_id)
 
     # ---- writes ---------------------------------------------------------
@@ -63,7 +63,7 @@ class Table:
         cols = list(data.keys())
         placeholders = ", ".join("?" for _ in cols)
         col_sql = ", ".join(cols)
-        async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        async with write_conn() as db:
             cur = await db.execute(
                 f"INSERT INTO {self.name} ({col_sql}) VALUES ({placeholders})",
                 [data[c] for c in cols],
@@ -84,7 +84,7 @@ class Table:
             return await self.get(row_id)
         set_sql = ", ".join(f"{c} = ?" for c in data)
         values = [data[c] for c in data] + [row_id]
-        async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        async with write_conn() as db:
             before = await self._snapshot(db, row_id)
             if before is None:
                 return None
@@ -102,7 +102,7 @@ class Table:
             return after
 
     async def soft_delete(self, actor: Optional[dict], row_id: int) -> bool:
-        async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        async with write_conn() as db:
             before = await self._snapshot(db, row_id)
             if before is None or before.get("deleted_at"):
                 return False
@@ -120,7 +120,7 @@ class Table:
             return True
 
     async def restore(self, actor: Optional[dict], row_id: int) -> bool:
-        async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+        async with write_conn() as db:
             before = await self._snapshot(db, row_id)
             if before is None or not before.get("deleted_at"):
                 return False

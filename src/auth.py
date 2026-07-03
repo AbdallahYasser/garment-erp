@@ -81,11 +81,22 @@ async def is_user_allowed(tg_user_id: int) -> bool:
     return bool(user and user.get("active"))
 
 
-def get_current_user(session: str | None = Cookie(default=None)) -> int:
-    """FastAPI dependency — returns Telegram user_id from cookie or 401s."""
+async def get_current_user(session: str | None = Cookie(default=None)) -> int:
+    """FastAPI dependency — returns Telegram user_id from cookie or 401s.
+
+    Also checks that the account is still active on every request, so
+    disabling a user in the Users screen takes effect immediately rather
+    than waiting for their 30-day JWT to expire.
+    ALLOWED_USERS bootstrap owners are exempt — they can never be locked out.
+    """
     if not session:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return decode_session_token(session)
+    user_id = decode_session_token(session)
+    if user_id not in config.ALLOWED_USERS:
+        user = await get_app_user(user_id)
+        if not user or not user.get("active"):
+            raise HTTPException(status_code=401, detail="Account is disabled")
+    return user_id
 
 
 async def get_role(tg_user_id: int) -> str:

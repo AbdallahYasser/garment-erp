@@ -32,6 +32,7 @@ def test_activity_feed_admin_only(client):
 
 def test_activity_feed_blocked_for_non_admin(client):
     from src.main import auth
-    # a plain sales user (222 not in ALLOWED_USERS) gets a valid token but no admin
+    from tests.conftest import make_test_user
+    make_test_user(222, "sales")  # must exist + be active; role gate then returns 403
     client.cookies.set("session", auth.create_session_token(222))
     assert client.get("/api/activity").status_code == 403

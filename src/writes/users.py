@@ -4,7 +4,7 @@ from typing import Optional
 import aiosqlite
 
 from src import config
-from src.db import write_db_uri
+from src.db import write_conn
 from src.writes import audit
 
 VALID_ROLES = ("admin", "accountant", "production", "sales")
@@ -17,7 +17,7 @@ async def register_pending(tg_user_id: int, name: Optional[str],
     Defaults to role 'sales', active=0 — an admin approves it from the Users
     screen (tick Active, pick a role). No-op if a row already exists.
     """
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM app_users WHERE tg_user_id = ?", (tg_user_id,)
@@ -52,7 +52,7 @@ async def ensure_user_on_login(tg_user_id: int, name: Optional[str],
     the system is never locked out; subsequent users default to 'sales' and
     must be promoted by an admin.
     """
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM app_users WHERE tg_user_id = ?", (tg_user_id,)
@@ -98,7 +98,7 @@ async def ensure_user_on_login(tg_user_id: int, name: Optional[str],
 async def set_role(actor: dict, user_row_id: int, role: str) -> bool:
     if role not in VALID_ROLES:
         raise ValueError("invalid role")
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM app_users WHERE id = ?", (user_row_id,)
@@ -121,7 +121,7 @@ async def set_role(actor: dict, user_row_id: int, role: str) -> bool:
 
 
 async def set_active(actor: dict, user_row_id: int, active: bool) -> bool:
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         cur = await db.execute(
             "UPDATE app_users SET active = ? WHERE id = ?",
             (1 if active else 0, user_row_id),
@@ -140,7 +140,7 @@ async def set_active(actor: dict, user_row_id: int, active: bool) -> bool:
 async def set_language(actor: dict, tg_user_id: int, language: str) -> bool:
     if language not in ("ar", "en"):
         raise ValueError("invalid language")
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         cur = await db.execute(
             "UPDATE app_users SET language = ? WHERE tg_user_id = ?",
             (language, tg_user_id),

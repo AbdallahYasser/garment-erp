@@ -12,7 +12,7 @@ from typing import Optional
 
 import aiosqlite
 
-from src.db import write_db_uri
+from src.db import write_conn
 from src.writes import audit
 
 STAGES = ("new", "prep", "cutting", "printing", "sewing",
@@ -100,7 +100,7 @@ async def create_order(
 ) -> int:
     if not customer_id:
         raise ValueError("customer_id is required")
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             """
@@ -144,7 +144,7 @@ async def create_order(
 
 async def set_unit_cost(actor: dict, order_id: int, unit_cost_cents: int) -> bool:
     unit_cost_cents = max(0, int(unit_cost_cents or 0))
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT unit_cost_cents FROM manufacturing_orders "
@@ -169,7 +169,7 @@ async def set_unit_cost(actor: dict, order_id: int, unit_cost_cents: int) -> boo
 # cut lines
 # --------------------------------------------------------------------------- #
 async def add_cut(actor: dict, order_id: int, **fields) -> int:
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT 1 FROM manufacturing_orders WHERE id = ? AND deleted_at IS NULL",
@@ -188,7 +188,7 @@ async def add_cut(actor: dict, order_id: int, **fields) -> int:
 
 
 async def update_cut(actor: dict, order_id: int, cut_id: int, **fields) -> bool:
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM order_cuts WHERE id = ? AND order_id = ? AND deleted_at IS NULL",
@@ -248,7 +248,7 @@ async def _write_cut(db, actor, order_id, cut_id, fields) -> None:
 
 
 async def remove_cut(actor: dict, order_id: int, cut_id: int) -> bool:
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM order_cuts WHERE id = ? AND order_id = ? AND deleted_at IS NULL",
@@ -279,7 +279,7 @@ async def remove_cut(actor: dict, order_id: int, cut_id: int) -> bool:
 async def delete_order(actor: dict, order_id: int) -> bool:
     """Soft-delete one order (+ its cuts/stages/inventory movements) and restore
     the fabric-roll stock its cuts had consumed."""
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM manufacturing_orders WHERE id = ? AND deleted_at IS NULL",
@@ -320,7 +320,7 @@ async def wipe_all_orders(actor: dict) -> dict:
     """Delete every order + its cuts/stages/order-linked inventory movements,
     restoring the fabric-roll stock the cuts had consumed. Append-only audit
     keeps the record. Irreversible."""
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM order_cuts WHERE deleted_at IS NULL") as c:
@@ -351,7 +351,7 @@ async def advance_stage(
 ) -> bool:
     if stage not in STAGES:
         raise ValueError("invalid stage")
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM manufacturing_orders WHERE id = ? AND deleted_at IS NULL",

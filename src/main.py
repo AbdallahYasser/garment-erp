@@ -49,10 +49,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @app.on_event("startup")
 async def _startup():
-    try:
-        await apply_migrations()
-    except Exception as e:  # noqa: BLE001
-        logger.exception("apply_migrations failed: %s", e)
+    await apply_migrations()
 
 
 # ---------------------------------------------------------------------------

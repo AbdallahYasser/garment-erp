@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 import aiosqlite
 
-from src.db import write_db_uri
+from src.db import write_conn
 
 
 def _now_utc_iso() -> str:
@@ -66,7 +66,7 @@ async def log(
     if db is not None:
         await db.execute(sql, params)
         return
-    async with aiosqlite.connect(write_db_uri(), uri=True) as conn:
+    async with write_conn() as conn:
         await conn.execute(sql, params)
         await conn.commit()
 

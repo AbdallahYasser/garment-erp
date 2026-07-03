@@ -3,7 +3,7 @@ from typing import Optional
 
 import aiosqlite
 
-from src.db import write_db_uri
+from src.db import write_conn
 from src.writes import audit
 
 
@@ -27,7 +27,7 @@ async def create_lot(
     total_remaining = length * rolls_count
     if owner not in ("factory", "customer"):
         owner = "factory"
-    async with aiosqlite.connect(write_db_uri(), uri=True) as db:
+    async with write_conn() as db:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             """
